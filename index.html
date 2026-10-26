@@ -1,0 +1,3855 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Field Photo Log + Sketch</title>
+
+<!-- Leaflet (free, no API key, OpenStreetMap tiles) -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<!-- Leaflet.draw: sketch toolbar -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<!-- exifr: reads GPS + heading tags from uploaded photos (JPEG, TIFF, and HEIC/HEIF), client-side only -->
+<script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
+<!-- heic2any: converts iPhone HEIC/HEIF photos to JPEG in-browser so they can be displayed/thumbnailed -->
+<script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
+
+<style>
+  :root{
+    --ink:#10201d;
+    --paper:#eef2f0;
+    --panel:#0f2a26;
+    --panel-2:#123330;
+    --teal:#1f8f86;
+    --teal-bright:#2fc6b8;
+    --pink:#f2668b;
+    --line:#2a4d47;
+    --muted:#9db8b2;
+    --mono:'IBM Plex Mono','SFMono-Regular',Consolas,monospace;
+    --sans:'Inter','Helvetica Neue',Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--paper);font-family:var(--sans);color:var(--ink);}
+
+  /* ---------- shell ---------- */
+  .shell{display:grid;grid-template-columns:360px 1fr;grid-template-rows:64px 1fr;height:100vh;}
+  header{
+    grid-column:1/3;background:var(--panel);color:var(--paper);
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 22px;border-bottom:3px solid var(--teal-bright);
+  }
+  .brand{display:flex;align-items:baseline;gap:10px;min-width:0;}
+  .brand .tag{
+    background:var(--pink);color:#1a0510;font-family:var(--mono);font-weight:700;
+    font-size:11px;letter-spacing:.08em;padding:3px 8px;border-radius:3px;transform:rotate(-2deg);
+    white-space:nowrap;flex-shrink:0;
+  }
+  .brand h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .headerRight{font-family:var(--mono);font-size:11px;color:var(--muted);text-align:right;line-height:1.5;flex-shrink:0;}
+
+  /* ---------- sidebar ---------- */
+  aside{
+    background:var(--panel);color:var(--paper);overflow-y:auto;
+    border-right:1px solid var(--line);display:flex;flex-direction:column;
+  }
+  .section{padding:16px 18px;border-bottom:1px solid var(--line);}
+  .section h2{
+    font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--teal-bright);margin:0 0 10px;
+  }
+  .drop{
+    border:1.5px dashed var(--line);border-radius:8px;padding:16px;text-align:center;
+    cursor:pointer;transition:.15s;background:var(--panel-2);
+  }
+  .drop:hover,.drop.drag{border-color:var(--teal-bright);background:#14403b;}
+  .drop p{margin:0;font-size:12.5px;color:var(--muted);}
+  .drop strong{color:var(--paper);}
+  #fileInput{display:none;}
+  .hint{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5;}
+
+  /* how-to notes */
+  .howto{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;}
+  .howto li{display:flex;gap:9px;font-size:12px;color:var(--muted);line-height:1.5;}
+  .howto .key{
+    flex-shrink:0;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--panel);
+    background:var(--teal-bright);border-radius:4px;padding:2px 6px;height:fit-content;white-space:nowrap;
+  }
+  .howto .key.alt{background:var(--pink);}
+  .howto b{color:var(--paper);}
+
+  .manualBox{display:none;margin-top:12px;padding:12px;background:var(--panel-2);border-radius:8px;border:1px solid var(--line);}
+  .manualBox.show{display:block;}
+  .manualBox label{display:block;font-family:var(--mono);font-size:10.5px;color:var(--muted);margin:8px 0 4px;text-transform:uppercase;letter-spacing:.06em;}
+  .manualBox input[type=range]{width:100%;accent-color:var(--teal-bright);}
+  .manualBox .bearingVal{font-family:var(--mono);color:var(--teal-bright);font-weight:700;}
+  .manualBox .btnRow{display:flex;gap:8px;margin-top:10px;}
+  .btn{
+    font-family:var(--mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+    border:1px solid var(--teal-bright);background:transparent;color:var(--teal-bright);
+    padding:7px 12px;border-radius:5px;cursor:pointer;transition:.15s;
+  }
+  .btn:hover{background:var(--teal-bright);color:var(--panel);}
+  .btn.solid{background:var(--teal-bright);color:var(--panel);}
+  .btn.ghost{border-color:var(--line);color:var(--muted);}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .placeMsg{font-size:11.5px;color:var(--pink);margin-top:6px;display:none;}
+  .placeMsg.show{display:block;}
+
+  .list{flex:1;overflow-y:auto;}
+  .photoRow{
+    display:flex;gap:10px;padding:10px 18px;border-bottom:1px solid var(--line);
+    align-items:center;
+  }
+  .photoRow:hover{background:var(--panel-2);}
+  .photoRow.active{background:#14403b;border-left:3px solid var(--pink);}
+  .photoRow img{width:52px;height:52px;object-fit:cover;border-radius:5px;flex-shrink:0;border:1px solid var(--line);cursor:pointer;}
+  .thumbWrap{position:relative;flex-shrink:0;}
+  .playBadge{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    pointer-events:none;
+  }
+  .playBadge::after{
+    content:'▶';color:#fff;font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,.7);
+  }
+  .photoMeta{min-width:0;flex:1;cursor:pointer;}
+  .photoMeta .name{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .photoMeta .coords{font-family:var(--mono);font-size:10.5px;color:var(--muted);}
+  .photoMeta .dir{font-family:var(--mono);font-size:10.5px;color:var(--teal-bright);}
+  .photoMeta .comment-snippet{font-size:11px;color:var(--paper);opacity:.85;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-style:italic;}
+  .empty{padding:18px;font-size:12px;color:var(--muted);font-style:italic;}
+  .numBadge{
+    flex-shrink:0;font-family:var(--mono);font-weight:700;font-size:11px;color:var(--panel);
+    background:var(--teal-bright);border-radius:5px;min-width:22px;height:22px;padding:0 4px;
+    display:flex;align-items:center;justify-content:center;
+  }
+
+  .rowDelete{
+    flex-shrink:0;width:22px;height:22px;border-radius:50%;border:1px solid var(--line);
+    background:transparent;color:var(--muted);font-size:13px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:.15s;
+  }
+  .rowDelete:hover{border-color:var(--pink);color:var(--pink);background:rgba(242,102,139,.12);}
+
+  /* ---------- map ---------- */
+  #map{width:100%;height:100%;background:#cfe0db;}
+  .leaflet-popup-content-wrapper{background:var(--panel);color:var(--paper);border-radius:8px;}
+  .leaflet-popup-tip{background:var(--panel);}
+  .popupCard{font-family:var(--sans);width:220px;}
+  .popupCard .thumbWrap{position:relative;}
+  .popupCard .thumbWrap img{width:100%;height:130px;object-fit:cover;border-radius:5px;display:block;margin-bottom:8px;cursor:pointer;}
+  .popupCard .thumbWrap .playBadge{margin-bottom:8px;}
+  .popupCard .thumbWrap .playBadge::after{font-size:34px;}
+  .popupCard .pname{font-size:12.5px;font-weight:700;margin-bottom:2px;}
+  .popupCard .pmeta{font-family:var(--mono);font-size:10.5px;color:var(--muted);line-height:1.5;}
+  .popupCard .pmeta b{color:var(--teal-bright);}
+  .popupCard .dragHint{color:var(--teal-bright);opacity:.85;margin-top:4px;font-style:italic;}
+  .popupCard button{
+    margin-top:8px;width:100%;font-family:var(--mono);font-size:10.5px;text-transform:uppercase;
+    background:var(--teal-bright);color:var(--panel);border:none;border-radius:5px;padding:6px;cursor:pointer;
+  }
+  .popupCard button.removeBtn{background:transparent;border:1px solid var(--pink);color:var(--pink);}
+  .popupCard button.removeBtn:hover{background:var(--pink);color:#1a0510;}
+  .popupCard textarea.commentBox{
+    width:100%;margin-top:8px;padding:6px 8px;border-radius:5px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--paper);font-family:var(--sans);font-size:11.5px;
+    resize:vertical;min-height:46px;box-sizing:border-box;
+  }
+  .popupCard textarea.commentBox:focus{outline:none;border-color:var(--teal-bright);}
+  .popupCard .commentLabel{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--teal-bright);margin-top:8px;}
+  .popupCard .styleRow{display:flex;gap:8px;margin-top:6px;align-items:flex-end;}
+  .popupCard .styleField{display:flex;flex-direction:column;gap:3px;font-family:var(--mono);font-size:9px;color:var(--muted);flex:1;min-width:0;}
+  .popupCard .styleField input[type=color]{
+    width:100%;height:24px;padding:0;border:1px solid var(--line);border-radius:4px;background:var(--panel-2);cursor:pointer;
+  }
+  .popupCard .styleField select{
+    width:100%;height:24px;padding:0 4px;border:1px solid var(--line);border-radius:4px;
+    background:var(--panel-2);color:var(--paper);font-family:var(--sans);font-size:11px;cursor:pointer;
+  }
+  .popupCard .styleField input[type=range]{width:100%;accent-color:var(--teal-bright);cursor:pointer;}
+  .popupCard .styleField .fieldVal{color:var(--teal-bright);font-size:9px;}
+
+  /* directional marker */
+  .arrowIcon{transform-origin:center center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));}
+
+  /* ---------- lightbox ---------- */
+  .lightbox{
+    position:fixed;inset:0;background:rgba(10,20,18,.92);display:none;
+    align-items:center;justify-content:center;z-index:5000;padding:30px;
+  }
+  .lightbox.show{display:flex;}
+  .lightbox .box{max-width:min(92vw,1000px);max-height:92vh;display:flex;flex-direction:column;gap:10px;}
+  .lightbox img{max-width:100%;max-height:78vh;border-radius:6px;object-fit:contain;background:#000;}
+  .lightbox video{max-width:100%;max-height:78vh;border-radius:6px;background:#000;}
+  .lbMissing{display:none;color:var(--pink);font-family:var(--mono);font-size:12.5px;line-height:1.6;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:14px;}
+  .lbMissing.show{display:block;}
+  .lightbox .cap{color:var(--paper);font-family:var(--mono);font-size:12px;display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center;}
+  .lightbox textarea.lbComment{
+    width:100%;min-height:70px;padding:10px 12px;border-radius:6px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--paper);font-family:var(--sans);font-size:13px;
+    resize:vertical;box-sizing:border-box;
+  }
+  .lightbox textarea.lbComment:focus{outline:none;border-color:var(--teal-bright);}
+  .lightbox .lbCommentLabel{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--teal-bright);}
+  .lightbox .lbStyleRow{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;}
+  .lightbox .lbStyleField{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:10.5px;color:var(--muted);}
+  .lightbox .lbStyleField input[type=color]{
+    width:70px;height:30px;padding:0;border:1px solid var(--line);border-radius:5px;background:var(--panel-2);cursor:pointer;
+  }
+  .lightbox .lbStyleField select{
+    height:30px;padding:0 8px;border:1px solid var(--line);border-radius:5px;
+    background:var(--panel-2);color:var(--paper);font-family:var(--sans);font-size:12px;cursor:pointer;
+  }
+  .lightbox .lbStyleField input[type=range]{width:120px;accent-color:var(--teal-bright);cursor:pointer;}
+  .lightbox .lbStyleField .fieldVal{color:var(--teal-bright);}
+  .closeX{
+    position:absolute;top:22px;right:28px;color:var(--paper);font-size:26px;cursor:pointer;
+    font-family:var(--mono);line-height:1;
+  }
+
+  .compassLegend{
+    position:absolute;bottom:34px;right:12px;background:rgba(15,42,38,.9);color:var(--paper);
+    padding:10px 12px;border-radius:8px;font-family:var(--mono);font-size:10.5px;z-index:400;
+    border:1px solid var(--line);
+  }
+  .compassLegend .row{display:flex;align-items:center;gap:8px;margin-top:4px;}
+
+  /* ---------- merged: tabs + sketch tool ---------- */
+  .tabs{display:flex;position:sticky;top:0;z-index:3;background:var(--panel);border-bottom:1px solid var(--line);flex-shrink:0;}
+  .tab{flex:1;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:12px 8px;background:transparent;color:var(--muted);border:0;border-bottom:3px solid transparent;cursor:pointer;}
+  .tab.on{color:var(--teal-bright);border-bottom-color:var(--teal-bright);}
+  .pane{display:none;}
+  .pane.on{display:flex;flex-direction:column;flex:1;}
+  .skui label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0;font-size:12.5px;color:var(--muted);}
+  .skui label>span{flex:none;width:92px;}
+  .skui input[type=text],.skui select{flex:1;min-width:0;padding:5px 7px;border:1px solid var(--line);border-radius:4px;background:var(--panel-2);color:var(--paper);font:inherit;}
+  .skui input[type=color]{width:44px;height:28px;padding:1px;border:1px solid var(--line);border-radius:4px;background:var(--panel-2);}
+  .skui input[type=range]{flex:1;min-width:0;accent-color:var(--teal-bright);}
+  .skui output{width:34px;text-align:right;font-variant-numeric:tabular-nums;color:var(--teal-bright);font-family:var(--mono);font-size:11px;}
+  .skui .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+  .skui #list{list-style:none;margin:0;padding:0;max-height:170px;overflow:auto;border:1px solid var(--line);border-radius:4px;background:var(--panel-2);}
+  .skui #list li button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;color:var(--paper);border:0;border-bottom:1px solid var(--line);border-radius:0;padding:5px 8px;cursor:pointer;font:inherit;font-size:12.5px;}
+  .skui #list li.on button{background:#14403b;}
+  .skui #list:empty::before{content:"Nothing drawn yet. Use the toolbar on the map.";display:block;padding:8px;color:var(--muted);font-size:12px;}
+  .legend{background:rgba(255,255,255,.94);color:#1d2a2e;padding:8px 10px;border-radius:6px;box-shadow:0 1px 6px rgba(0,0,0,.35);max-width:240px;font:13px/1.4 system-ui,sans-serif;}
+  .legend b{display:block;margin-bottom:4px;}
+  .legend div{display:flex;align-items:center;gap:8px;margin:2px 0;}
+  #map.grey .leaflet-tile-pane{filter:grayscale(1);}
+  .sel{filter:drop-shadow(0 0 3px #f5a300) drop-shadow(0 0 3px #f5a300);}
+  .pin{border-radius:50%;width:100%;height:100%;}
+  .skui #list li.gh{padding:5px 8px;background:#0b211e;color:var(--teal-bright);font-family:var(--mono);font-size:11px;letter-spacing:.04em;border-bottom:1px solid var(--line);}
+  .skui #list li{display:flex;align-items:center;}
+  .skui #list li.gh{display:block;cursor:pointer;}
+  .skui #list li.gh:hover{background:#12332f;}
+  .skui #list li.mem{padding-left:14px;}
+  .skui #list li.on{background:#14403b;}
+  .skui #list li .rc{margin:0 0 0 8px;flex:none;accent-color:var(--teal-bright);}
+  .skui #list li.r button{flex:1;min-width:0;width:auto;}
+  .skui #list li.dim button{opacity:.5;}
+  .grow{border:1px solid var(--line);border-radius:6px;background:var(--panel-2);padding:8px;margin-top:8px;}
+  .gtop{display:flex;align-items:center;gap:8px;}
+  .gtop b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;}
+  .gc{font-family:var(--mono);font-size:11px;color:var(--muted);}
+  .gbtn{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;align-items:center;}
+  .gbtn .btn{padding:4px 8px;font-size:10px;}
+  .gbtn label.gl{margin:0 0 0 auto;font-size:11px;justify-content:flex-start;gap:4px;}
+
+  /* ---------- field capture (phone camera / audio / GPS) ---------- */
+  #panelToggle{display:none;align-items:center;justify-content:center;width:40px;height:40px;margin-right:6px;flex-shrink:0;
+    background:transparent;border:1px solid var(--line);border-radius:8px;color:var(--paper);font-size:20px;cursor:pointer;}
+  .scrim{display:none;}
+  .modalBack{position:fixed;inset:0;z-index:5500;background:rgba(5,15,13,.7);display:none;align-items:center;justify-content:center;padding:16px;}
+  .modalBack.show{display:flex;}
+  .modalBox{background:var(--panel);color:var(--paper);border:1px solid var(--teal-bright);border-radius:12px;padding:18px;width:min(460px,100%);max-height:92vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.5);}
+  .modalBox h3{margin:0 0 4px;font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal-bright);}
+  .impName{font-weight:700;font-size:14px;word-break:break-all;margin-bottom:6px;}
+  .impCounts{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px;}
+  .impCounts b{color:var(--paper);}
+  .impOpt{display:block;width:100%;text-align:left;background:var(--panel-2);color:var(--paper);border:1px solid var(--line);border-radius:8px;padding:11px 12px;margin-bottom:8px;cursor:pointer;font:inherit;}
+  .impOpt:hover{border-color:var(--teal-bright);}
+  .impOpt.rec{border-color:var(--teal-bright);}
+  .impOpt b{display:block;font-size:13.5px;margin-bottom:3px;}
+  .impOpt.rec b::after{content:' — recommended';font-weight:400;color:var(--teal-bright);font-size:11.5px;}
+  .impOpt span{display:block;font-size:11.5px;color:var(--muted);line-height:1.45;}
+  .appOnly,.iosOnly{display:none;}
+  .androidApp .appOnly{display:block;}
+  .iosDevice .iosOnly{display:block;}
+  .fieldStatus{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-family:var(--mono);font-size:11px;color:var(--muted);margin:2px 0 10px;}
+  .fieldStatus b{color:var(--paper);font-weight:600;}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#56706b;margin-right:5px;vertical-align:1px;}
+  .dot.good{background:#3ddc84;} .dot.ok{background:#f5a300;} .dot.bad{background:var(--pink);}
+  .capGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .capGrid .btn{padding:10px 8px;font-size:11.5px;}
+  .capGrid .wide{grid-column:1/3;}
+  .linkSet{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);}
+  .linkSet label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);margin:6px 0;}
+  .linkSet input[type=number]{width:70px;padding:5px 7px;border:1px solid var(--line);border-radius:4px;background:var(--panel-2);color:var(--paper);font:inherit;}
+  .warnBox{display:none;margin-top:10px;padding:9px 10px;border-radius:6px;background:rgba(242,102,139,.12);border:1px solid var(--pink);color:#ffd3df;font-size:11.5px;line-height:1.5;}
+  .warnBox.show{display:block;}
+  .linkInfo{font-size:11px;color:#f5c04a;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .popupCard .linkInfo{white-space:normal;}
+  .popupCard .linkInfo a,.lbLinks a{color:#f5c04a;cursor:pointer;text-decoration:underline;}
+  .popupCard .pbtnRow{display:flex;gap:6px;}
+  .lbLinks{font-family:var(--mono);font-size:11.5px;color:#f5c04a;}
+  .lbDirRow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .lightbox audio{width:100%;}
+  .linkedMedia{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px;margin-top:6px;}
+  .linkedMedia .lm{position:relative;cursor:pointer;}
+  .linkedMedia img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:5px;border:1px solid var(--line);display:block;}
+  .linkedMedia .lmNum{position:absolute;left:3px;top:3px;font-family:var(--mono);font-size:10px;font-weight:700;background:var(--teal-bright);color:var(--panel);border-radius:3px;padding:0 4px;}
+  .linkedMedia .lmD{position:absolute;right:3px;bottom:3px;font-family:var(--mono);font-size:9.5px;background:rgba(0,0,0,.65);color:#fff;border-radius:3px;padding:0 3px;}
+  .lcount{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:#f5c04a;padding-left:6px;white-space:nowrap;}
+
+  /* floating capture buttons on the map */
+  .fabs{position:absolute;right:12px;bottom:30px;z-index:650;display:none;flex-direction:column;gap:12px;align-items:center;}
+  body.touch .fabs, body.fieldOn .fabs{display:flex;}
+  body.touch .compassLegend, body.fieldOn .compassLegend{bottom:auto;top:12px;right:12px;}
+  .fab{width:54px;height:54px;border-radius:50%;border:2px solid var(--teal-bright);background:var(--panel);color:var(--paper);
+    font-size:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.4);padding:0;}
+  .fab.big{width:66px;height:66px;font-size:28px;background:var(--teal-bright);color:var(--panel);}
+  .fab.small{width:44px;height:44px;font-size:18px;}
+  .fab.on{background:#1e6fd9;border-color:#8cc0ff;}
+  .fab svg{width:58%;height:58%;}
+
+  /* live position marker */
+  .meDot{width:18px;height:18px;border-radius:50%;background:#1e6fd9;border:3px solid #fff;box-shadow:0 0 0 2px rgba(30,111,217,.35),0 1px 4px rgba(0,0,0,.4);}
+  .meWrap{position:relative;width:60px;height:60px;}
+  .meWrap .cone{position:absolute;inset:0;transform-origin:50% 50%;}
+  .meWrap .meDot{position:absolute;left:21px;top:21px;}
+
+  /* in-app camera / recorder overlay */
+  .cam{position:fixed;inset:0;z-index:6000;background:#000;color:#fff;display:none;font-family:var(--sans);
+    -webkit-user-select:none;user-select:none;touch-action:manipulation;}
+  .cam.show{display:block;}
+  .cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;}
+  .camTop{position:absolute;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top) + 10px) 12px 10px;display:flex;align-items:flex-start;gap:10px;
+    background:linear-gradient(rgba(0,0,0,.75),rgba(0,0,0,0));}
+  .camBtn{flex-shrink:0;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.45);color:#fff;font-size:18px;cursor:pointer;padding:0;}
+  .camStatus{flex:1;min-width:0;font-family:var(--mono);font-size:12px;line-height:1.55;text-shadow:0 1px 2px #000;}
+  .camLink{margin-top:2px;color:#ffd77a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .camBottom{position:absolute;left:0;right:0;bottom:0;padding:12px 16px calc(env(safe-area-inset-bottom) + 18px);
+    background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.8));}
+  .camModes{display:flex;justify-content:center;gap:6px;margin-bottom:14px;}
+  .camModes button{background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.25);color:#ddd;font-family:var(--mono);font-size:12px;
+    letter-spacing:.06em;text-transform:uppercase;padding:7px 14px;border-radius:16px;cursor:pointer;}
+  .camModes button.on{background:#ffd77a;color:#111;border-color:#ffd77a;font-weight:700;}
+  .camModes button:disabled{opacity:.4;}
+  .camRow{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;}
+  .camLast{width:54px;height:54px;border-radius:8px;border:2px solid rgba(255,255,255,.7);overflow:hidden;background:#222;justify-self:start;cursor:pointer;position:relative;}
+  .camLast img{width:100%;height:100%;object-fit:cover;display:block;}
+  .camLast:empty{visibility:hidden;}
+  .camCount{justify-self:end;font-family:var(--mono);font-size:12px;color:#ccc;text-align:right;}
+  .shutter{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#fff;box-shadow:inset 0 0 0 4px #000;cursor:pointer;padding:0;transition:transform .08s;}
+  .shutter:active{transform:scale(.93);}
+  .shutter.vid{background:#e53935;}
+  .shutter.aud{background:#f5a300;}
+  .shutter.rec{background:#e53935;border-radius:18px;box-shadow:inset 0 0 0 16px #000;}
+  .recTime{position:absolute;left:50%;top:calc(env(safe-area-inset-top) + 92px);transform:translateX(-50%);background:#e53935;color:#fff;
+    font-family:var(--mono);font-size:14px;font-weight:700;padding:4px 12px;border-radius:14px;display:none;}
+  .recTime.show{display:block;}
+  .audioStage{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:radial-gradient(circle at 50% 40%,#173a35,#05100e 70%);}
+  .audioStage.show{display:flex;}
+  .audioStage .mic{font-size:64px;line-height:1;}
+  .audioStage canvas{width:min(80vw,420px);height:90px;}
+  .audioStage .aHint{font-family:var(--mono);font-size:12px;color:#9db8b2;text-align:center;padding:0 24px;}
+  .flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .25s;}
+  .flash.go{opacity:.85;transition:none;}
+  .camToast{position:absolute;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 170px);background:rgba(15,42,38,.95);border:1px solid var(--teal-bright);
+    border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.4;display:none;align-items:center;gap:10px;}
+  .camToast.show{display:flex;}
+  .camToast span{flex:1;min-width:0;}
+  .camToast button{flex-shrink:0;background:var(--teal-bright);color:var(--panel);border:0;border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:11px;font-weight:700;cursor:pointer;}
+  .camErr{position:absolute;left:20px;right:20px;top:40%;text-align:center;font-size:14px;line-height:1.5;color:#ffd3df;display:none;}
+  .camErr.show{display:block;}
+
+  /* ---------- small screens (phones) ---------- */
+  @media (max-width: 820px){
+    .shell{grid-template-columns:1fr;grid-template-rows:56px 1fr;height:100vh;height:100dvh;}
+    header{grid-column:1;padding:0 10px;}
+    #panelToggle{display:inline-flex;}
+    .brand{flex:1;}
+    .brand h1{font-size:15px;}
+    .brand .tag{display:none;}
+    .headerRight .hdrNote{display:none;}
+    aside{position:fixed;top:56px;left:0;bottom:0;width:min(90vw,390px);z-index:1600;transform:translateX(-103%);
+      transition:transform .22s ease;box-shadow:6px 0 24px rgba(0,0,0,.45);}
+    .shell.panelOpen aside{transform:none;}
+    .shell.panelOpen .scrim{display:block;position:fixed;inset:56px 0 0 0;background:rgba(0,0,0,.35);z-index:1550;}
+    .compassLegend{display:none;}
+    .lightbox{padding:8px;align-items:flex-start;overflow-y:auto;}
+    .lightbox .box{max-width:100%;max-height:none;padding-top:34px;}
+    .lightbox img,.lightbox video{max-height:55vh;}
+    .closeX{top:10px;right:14px;font-size:18px;z-index:2;}
+    .btn{padding:9px 12px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <header>
+    <button id="panelToggle" aria-label="Show or hide the side panel" title="Panel">☰</button>
+    <div class="brand">
+      <h1 id="siteTitle">Field Photo Log</h1>
+      <span class="tag" id="siteTag">UPLOAD TO BEGIN</span>
+    </div>
+    <div class="headerRight">
+      <span class="hdrNote">OpenStreetMap · Leaflet.js · Nominatim — no API key required<br></span>
+      <span id="countLabel">0 photos plotted</span>
+    </div>
+  </header>
+  <div class="scrim" id="scrim"></div>
+
+  <aside>
+    <div class="tabs" role="tablist">
+      <button class="tab on" data-pane="walkPane">Photo walk</button>
+      <button class="tab" data-pane="sketchPane">Sketch</button>
+    </div>
+    <div class="section skui" id="bgSection">
+      <h2>Background</h2>
+      <label><span>Basemap</span>
+        <select id="bm"><option value="OpenStreetMap" selected="">OpenStreetMap</option><option value="Esri Imagery">Satellite imagery</option><option value="Esri Streets">Map (streets)</option><option value="Esri Topographic">Topographic</option><option value="Esri Light Gray">Light grey map</option></select></label>
+      <label><span>Greyscale</span><input type="checkbox" id="grey"></label>
+      <label><span>Place labels</span><input type="checkbox" id="lab"></label>
+    </div>
+    <div class="pane on" id="walkPane">
+    <div class="section" id="fieldSection">
+      <h2>Field capture (phone)</h2>
+      <div class="fieldStatus">
+        <span>GPS</span><b id="fsGps"><span class="dot"></span>off</b>
+        <span>Compass</span><b id="fsHead"><span class="dot"></span>off</b>
+        <span>Nearby</span><b id="fsNear">—</b>
+      </div>
+      <div class="capGrid">
+        <button class="btn solid wide" id="fieldToggleBtn">Start field mode</button>
+        <button class="btn" id="capPhotoBtn">📷 Photo / video</button>
+        <button class="btn" id="capAudioBtn">🎙 Audio note</button>
+        <button class="btn ghost" id="nativePhotoBtn">Phone camera app: photo</button>
+        <button class="btn ghost" id="nativeVideoBtn">Phone camera app: video</button>
+      </div>
+      <input type="file" id="nativePhotoInput" accept="image/*" capture="environment" style="display:none;">
+      <input type="file" id="nativeVideoInput" accept="video/*" capture="environment" style="display:none;">
+      <div class="hint">Field mode switches on live GPS and the phone compass. Every photo, video or audio note you take is pinned at your GPS position, pointing the way the phone faced, and linked to any sketch point within the distance below. Media is kept on this device until you export a field pack.</div>
+      <div class="warnBox" id="secureWarn"></div>
+      <div class="linkSet">
+        <label>Link to sketch points within (m)<input type="number" id="linkRadius" min="1" max="500" step="1" value="15"></label>
+        <label>Also link to lines &amp; areas<input type="checkbox" id="linkShapes"></label>
+        <label>Show link lines on map<input type="checkbox" id="linkLines" checked></label>
+        <button class="btn ghost" id="relinkBtn" style="width:100%;margin-top:4px;">Re-link all media now</button>
+      </div>
+    </div>
+    <div class="section">
+      <h2>Site walk file</h2>
+      <div class="btnRow">
+        <button class="btn solid" id="saveWalkBtn">Save site walk</button>
+        <button class="btn ghost" id="openWalkBtn">Open saved walk</button>
+      </div>
+      <input type="file" id="openWalkInput" accept=".html,.htm,text/html" style="display:none;">
+      <div class="hint"><b>Save this .html file in the same folder as your original photos and videos.</b> Pin positions, headings, comments, marker styling, and your sketch shapes and legend are saved inside the file — but the photos/videos themselves are referenced by filename, not copied in, so the file stays small no matter how many you add. Keep filenames unchanged so they still match up when reopened.</div>
+      <div class="hint"><b>Open saved walk</b> also brings in a newer copy made on another device (for example new sketches drawn on the laptop): you choose whether to update just the sketch, merge everything, or replace what's here.</div>
+      <button class="btn solid" id="exportPackBtn" style="width:100%;margin-top:12px;">Export field pack (ZIP)</button>
+      <div class="hint">For phone captures: one ZIP holding the saved site-walk .html, the photo list CSV, and every photo, video and audio file stored on this device, already named to match. Unzip it into one folder on your PC and open the .html.</div>
+      <div class="hint iosOnly">On iPhone, saving opens the share sheet: choose <b>Save to Files</b>, OneDrive / Google Drive or Mail to get the file to your laptop. To bring new sketches from the laptop, save the walk there, put the .html in Files / OneDrive / Google Drive, then use <b>Open saved walk</b> here and choose <b>Update the sketch, keep my photos</b>.</div>
+      <div class="hint appOnly">In the app, saved files go to the phone's <b>Download/SiteWalk</b> folder, and a <b>Share</b> button lets you send them straight to your laptop (Google Drive, email, Nearby Share), or copy them over USB. To bring new sketches from the laptop, save the walk there, send the .html to the phone and tap it (<b>Open with Site Walk</b>), or use <b>Open saved walk</b> here — then choose <b>Update the sketch, keep my photos</b>.</div>
+      <button class="btn ghost" id="clearDeviceBtn" style="width:100%;margin-top:10px;">Start new walk (clear this device)</button>
+    </div>
+    <div class="section">
+      <h2>Photo list export</h2>
+      <button class="btn solid" id="exportListBtn" style="width:100%;">Export photo list (CSV)</button>
+      <div class="hint">Downloads a spreadsheet with every photo's number, coordinates, and comment — matching the numbers shown on the map pins.</div>
+    </div>
+    <div class="section">
+      <h2>Add a photo</h2>
+      <div class="drop" id="dropZone">
+        <p><strong>Click to upload</strong> or drag photos, videos or audio here</p>
+        <p style="margin-top:6px;">GPS + compass heading read automatically from the file, if present. iPhone HEIC photos, MP4/MOV video clips and audio recordings are supported.</p>
+      </div>
+      <input type="file" id="fileInput" accept="image/*,.heic,.heif,video/*,.mov,.mp4,.m4v,.webm,audio/*,.m4a,.mp3,.wav,.aac,.ogg,.opus" multiple="">
+      <div class="hint">If a photo or video has no location data, you'll be asked to place it manually. GPS is read automatically from MP4/MOV clips when the camera app embedded it (iPhone .mov files reliably include it; support varies on Android) — screen recordings, edited exports, and location-services-off clips usually won't have it, so expect to place some by hand. Full-size viewing loads the original file by name, so avoid duplicate filenames. Note: HEIC photos display fully in Safari, but may not preview in Chrome/Firefox unless converted to JPEG first — the thumbnail will still show fine everywhere.</div>
+
+      <div class="manualBox" id="manualBox">
+        <div style="font-size:12px;color:var(--pink);">No GPS/heading found in <span id="manualFileName">this photo</span>.</div>
+        <div class="hint" id="manualQueueHint" style="margin-top:4px;"></div>
+        <div class="btnRow" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" id="pickOnMapBtn">Click point on map</button>
+          <button class="btn" id="useGpsBtn" style="display:none;">Use my GPS position</button>
+        </div>
+        <div class="placeMsg" id="placeMsg">→ Now click the map where this photo was taken.</div>
+        <label>Direction camera was facing: <span class="bearingVal" id="bearingVal">0°</span></label>
+        <input type="range" id="bearingSlider" min="0" max="359" value="0">
+        <div class="btnRow">
+          <button class="btn solid" id="confirmManual" disabled="">Add to map</button>
+          <button class="btn ghost" id="cancelManual">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Editing pins</h2>
+      <ul class="howto">
+        <li><span class="key">drag</span> <span>Move a pin — <b>click and drag</b> it to correct its location.</span></li>
+        <li><span class="key alt">ctrl + drag</span> <span>Reorient a pin — hold <b>Ctrl</b>, then drag to swing the arrow to the direction the photo was actually facing.</span></li>
+        <li><span class="key">click</span> <span>Open a photo — click its pin, thumbnail, or log entry.</span></li>
+        <li><span class="key">touch</span> <span>On a phone, open the photo and use the <b>Direction</b> slider or <b>Use phone compass</b> to reorient it.</span></li>
+      </ul>
+    </div>
+
+    <div class="section" style="border-bottom:none;padding-bottom:8px;">
+      <h2>Photo log</h2>
+    </div>
+    <div class="list" id="photoList"></div>
+  </div>
+    <div class="pane skui" id="sketchPane">
+      <div class="section">
+        <h2>Sketch tool</h2>
+        <div class="hint" style="margin-top:0">Draw with the toolbar on the map (top-left), then click a shape to restyle it. New shapes copy the current style.</div>
+      </div>
+      <div class="section">
+        <h2>Selected shape</h2>
+        <div id="none" class="hint" style="margin-top:0">Click a shape on the map or in the list.</div>
+        <div id="panel" hidden="">
+          <div id="multinote" class="hint" hidden="" style="margin:0 0 8px;color:var(--teal-bright);"></div>
+          <label><span>Name</span><input type="text" id="nm"></label>
+          <label><span>Line colour</span><input type="color" id="col"></label>
+          <label><span>Thickness</span><input type="range" id="wt" min="1" max="20" step="1"><output id="wto"></output></label>
+          <label><span>Opacity</span><input type="range" id="op" min="0.1" max="1" step="0.05"><output id="opo"></output></label>
+          <label id="dashrow"><span>Line style</span>
+            <select id="dash"><option value="">Solid</option><option value="10 7">Dashed</option><option value="2 7">Dotted</option><option value="14 6 2 6">Dash-dot</option></select></label>
+          <div id="fillrows">
+            <label><span>Fill colour</span><input type="color" id="fil"></label>
+            <label><span>Fill opacity</span><input type="range" id="fop" min="0" max="1" step="0.05"><output id="fopo"></output></label>
+          </div>
+          <label><span>In legend</span><input type="checkbox" id="inl"></label>
+          <label><span>Group</span><select id="grp"></select></label>
+          <label><span>Style whole group</span><input type="checkbox" id="gs" checked=""></label>
+          <div class="row"><button class="btn" id="del" style="border-color:var(--pink);color:var(--pink);">Delete shape</button></div>
+          <div id="linkedWrap" style="margin-top:12px;">
+            <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#f5c04a;">Linked media <span id="linkedCount"></span></div>
+            <div class="linkedMedia" id="linkedMedia"></div>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <h2>Groups</h2>
+        <div class="hint" style="margin-top:0">Group points, lines and areas to style, hide and list them together. A group shows as one legend row.</div>
+        <label><span>New shapes go to</span><select id="ag"></select></label>
+        <div class="row"><button class="btn solid" id="ng">+ New group</button></div>
+        <div id="glist"></div>
+      </div>
+      <div class="section"><h2>Shapes</h2>
+        <div class="hint" style="margin-top:0">Tick boxes, Ctrl/⌘-click, or Shift-click for a range (also works on the map) to select several. Then group or restyle them together. Click a group heading to select all its shapes.</div>
+        <div class="row" style="margin:0 0 8px"><button class="btn ghost" id="sall">Select all</button><button class="btn ghost" id="snone">Clear selection</button></div>
+        <ul id="list"></ul></div>
+      <div class="section">
+        <h2>Legend</h2>
+        <label><span>Show legend</span><input type="checkbox" id="lon" checked=""></label>
+        <label><span>Title</span><input type="text" id="lt" value="Legend"></label>
+      </div>
+      <div class="section">
+        <h2>Share a locked copy</h2>
+        <label><span>Title</span><input type="text" id="shareTitle" value="Site sketch"></label>
+        <div class="row"><button class="btn solid" id="expLock" style="width:100%;">Export locked version (HTML)</button></div>
+        <div class="hint">Creates a single view-only page to share: your shapes, groups, legend and basemap exactly as shown here. It has no drawing tools and no photo upload, and shapes can't be moved, restyled or deleted. Hidden groups are left out.</div>
+      </div>
+      <div class="section" style="border-bottom:none;">
+        <h2>Save and load sketch</h2>
+        <div class="row" style="margin-top:0">
+          <button class="btn solid" id="exp">Export GeoJSON</button>
+          <button class="btn solid" id="expc">Export coordinates (CSV)</button>
+          <button class="btn ghost" id="impb">Import / update sketch</button>
+          <input type="file" id="imp" accept=".geojson,.json,.html,.htm" hidden="">
+        </div>
+        <div class="hint">Sketch shapes and the legend are also stored inside the file made by “Save site walk”. <b>Import / update sketch</b> takes the shapes from a newer saved walk (.html) or a GeoJSON file: shapes edited elsewhere are updated, new ones are added, and your photos and the shapes that only exist here are kept.</div>
+      </div>
+    </div>
+  </aside>
+
+  <div style="position:relative;">
+    <div id="map"></div>
+    <div class="compassLegend">
+      <div><b>▲</b> = camera position &amp; facing direction</div>
+      <div class="row"><span style="color:var(--teal-bright);">●</span> plotted from photo/video EXIF</div>
+      <div class="row"><span style="color:var(--pink);">●</span> placed manually</div>
+      <div class="row"><span style="color:#f5a300;">●</span> captured live with phone GPS</div>
+      <div class="row">▶ = video · ■ = audio note · <span style="color:#f5c04a;">┄</span> = link to sketch point</div>
+      <div class="row">drag = move · ctrl+drag = rotate</div>
+    </div>
+    <div class="fabs" id="fabs">
+      <button class="fab small" id="fabLocate" title="Show my location / follow me" aria-label="Show my location">◎</button>
+      <button class="fab" id="fabAudio" title="Record an audio note" aria-label="Record an audio note">🎙</button>
+      <button class="fab big" id="fabCamera" title="Take a photo or video" aria-label="Take a photo or video">📷</button>
+    </div>
+  </div>
+</div>
+
+<!-- choose how to bring in a newer copy of the walk -->
+<div class="modalBack" id="importDlg" role="dialog" aria-modal="true">
+  <div class="modalBox">
+    <h3>Load walk file</h3>
+    <div class="impName" id="importTitle"></div>
+    <div class="impCounts" id="importCounts"></div>
+    <button class="impOpt rec" data-mode="sketch">
+      <b>Update the sketch, keep my photos</b>
+      <span>The sketch becomes the one in the file (new and edited shapes from the laptop). Photos, videos and audio notes on this device are kept and re-linked.</span>
+    </button>
+    <button class="impOpt" data-mode="merge">
+      <b>Merge everything</b>
+      <span>Adds or updates shapes and items from the file (comments, pin positions, styles) and keeps anything that only exists on this device.</span>
+    </button>
+    <button class="impOpt" data-mode="replace" id="impReplace">
+      <b>Replace everything with the file</b>
+      <span>Shows only what is in the file.</span>
+    </button>
+    <button class="btn ghost" data-mode="" style="width:100%;margin-top:4px;">Cancel</button>
+  </div>
+</div>
+
+<!-- in-app camera / audio recorder (field capture) -->
+<div class="cam" id="cam" aria-modal="true" role="dialog">
+  <video id="camVideo" playsinline muted autoplay></video>
+  <div class="audioStage" id="audioStage">
+    <div class="mic">🎙</div>
+    <canvas id="levelCanvas" width="840" height="180"></canvas>
+    <div class="aHint" id="audioHint">Tap the button to start recording an audio note.</div>
+  </div>
+  <div class="flash" id="camFlash"></div>
+  <div class="camTop">
+    <button class="camBtn" id="camClose" aria-label="Close camera">✕</button>
+    <div class="camStatus">
+      <div id="camGps">GPS: waiting…</div>
+      <div id="camHead">Facing: —</div>
+      <div class="camLink" id="camLink"></div>
+    </div>
+    <button class="camBtn" id="camFlip" aria-label="Switch camera">⟲</button>
+  </div>
+  <div class="recTime" id="recTime">● 0:00</div>
+  <div class="camErr" id="camErr"></div>
+  <div class="camToast" id="camToast"><span id="camToastMsg"></span><button id="camToastNote">Add note</button></div>
+  <div class="camBottom">
+    <div class="camModes" id="camModes">
+      <button data-mode="photo" class="on">Photo</button>
+      <button data-mode="video">Video</button>
+      <button data-mode="audio">Audio</button>
+    </div>
+    <div class="camRow">
+      <div class="camLast" id="camLast" title="Last capture"></div>
+      <button class="shutter" id="camShutter" aria-label="Capture"></button>
+      <div class="camCount" id="camCount"></div>
+    </div>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox">
+  <span class="closeX" id="lbClose">✕ close</span>
+  <div class="box">
+    <img id="lbImg" src="" alt="">
+    <video id="lbVideo" controls="" playsinline style="display:none;"></video>
+    <audio id="lbAudio" controls="" style="display:none;"></audio>
+    <div class="lbMissing" id="lbMissing"></div>
+    <div class="cap">
+      <span id="lbName"></span>
+      <span id="lbDesc"></span>
+      <span id="lbCoords"></span>
+      <button class="btn" id="lbRemove" style="border-color:var(--pink);color:var(--pink);">Remove from log</button>
+    </div>
+    <div class="lbLinks" id="lbLinks"></div>
+    <div class="lbCommentLabel">Direction</div>
+    <div class="lbDirRow">
+      <input type="range" id="lbDir" min="0" max="359" step="1" style="flex:1;min-width:160px;accent-color:var(--teal-bright);">
+      <span class="fieldVal" id="lbDirVal" style="font-family:var(--mono);font-size:12px;color:var(--teal-bright);min-width:90px;"></span>
+      <button class="btn" id="lbCompass">Use phone compass</button>
+    </div>
+    <div class="lbCommentLabel">Marker style</div>
+    <div class="lbStyleRow">
+      <label class="lbStyleField">Color
+        <input type="color" id="lbColor">
+      </label>
+      <label class="lbStyleField">Shape
+        <select id="lbShape">
+          <option value="circle">● Circle</option>
+          <option value="square">■ Square</option>
+          <option value="diamond">◆ Diamond</option>
+          <option value="star">★ Star</option>
+        </select>
+      </label>
+      <label class="lbStyleField">Number size <span class="fieldVal" id="lbFontSizeVal"></span>
+        <input type="range" id="lbFontSize" min="8" max="16" step="1">
+      </label>
+    </div>
+    <div class="lbCommentLabel">Comment</div>
+    <textarea id="lbCommentBox" class="lbComment" placeholder="Add a comment about this photo..."></textarea>
+  </div>
+</div>
+
+<!-- Embedded data: empty by default. When you use "Save site walk" below, this
+     tool writes the current photo log into this tag inside a downloaded copy
+     of this file, so reopening that file restores everything automatically. -->
+<script type="application/json" id="embeddedPhotoData">[]</script>
+<script type="application/json" id="embeddedSketchData">{"type":"FeatureCollection","legendTitle":"Legend","groups":[],"features":[]}</script>
+
+<script>
+/* ======================= state ======================= */
+// Captured as the very first thing this script does, before Leaflet or any
+// photo markers are added — this is the original, untouched page markup.
+// "Save site walk" edits a copy of this string (swapping in the current
+// photo data) rather than the live, script-mutated DOM, so the downloaded
+// file is always a clean, self-contained copy of this tool.
+const PRISTINE_HTML = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+
+/* ======================= Android app bridge =======================
+   When this page runs inside the "Site Walk" Android app, the app provides
+   window.AndroidBridge. Browsers inside apps can't save blob downloads themselves,
+   so every download (Save site walk, field pack ZIP, CSV, GeoJSON…) is streamed
+   to the app in chunks and saved to the phone's Download/SiteWalk folder, from
+   where it can be shared to a laptop. In a normal browser this block does nothing. */
+(function(){
+  const B = window.AndroidBridge;
+  if(!B) return;
+  document.documentElement.classList.add('androidApp');
+  const blobs = new Map();
+  const origCreate = URL.createObjectURL.bind(URL), origRevoke = URL.revokeObjectURL.bind(URL);
+  URL.createObjectURL = function(obj){
+    const u = origCreate(obj);
+    if(obj instanceof Blob) blobs.set(u, obj);
+    return u;
+  };
+  // The page revokes download URLs right after clicking; keep the blob a while so it can be sent.
+  URL.revokeObjectURL = function(u){ setTimeout(() => { blobs.delete(u); origRevoke(u); }, 120000); };
+  const origClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function(){
+    const name = this.getAttribute('download');
+    const href = this.href || '';
+    if(name !== null && href){
+      const blob = blobs.get(href);
+      if(blob){ sendToApp(blob, name || 'download'); return; }
+      if(href.startsWith('data:') || href.startsWith('blob:')){
+        fetch(href).then(r => r.blob()).then(b => sendToApp(b, name || 'download'))
+          .catch(e => alert('Could not save ' + name + ': ' + (e.message || e)));
+        return;
+      }
+    }
+    return origClick.call(this);
+  };
+  function sliceB64(b){
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => { const s = r.result; res(s.slice(s.indexOf(',') + 1)); };
+      r.onerror = () => rej(r.error);
+      r.readAsDataURL(b);
+    });
+  }
+  async function sendToApp(blob, name){
+    const note = (msg) => { if(typeof mapToast === 'function') mapToast(msg, 2500); };
+    try{
+      const id = B.begin(name, (blob.type || 'application/octet-stream').split(';')[0]);
+      if(!id) throw new Error('the app could not create the file');
+      const CH = 1024 * 1024;
+      for(let i = 0; i < blob.size; i += CH){
+        if(!B.append(id, await sliceB64(blob.slice(i, i + CH)))) throw new Error('writing failed (phone storage full?)');
+        if(blob.size > 4 * CH) note(`Saving ${name}… ${Math.min(100, Math.round((i + CH) / blob.size * 100))}%`);
+      }
+      const res = B.finish(id);
+      if(res && res.indexOf('ERROR') === 0) throw new Error(res.slice(6));
+    }catch(e){
+      alert('Could not save ' + name + ': ' + (e.message || e));
+    }
+  }
+  // Android back button: close whatever is open before leaving the app.
+  window.siteWalkBack = function(){
+    const dlg = document.getElementById('importDlg');
+    if(dlg && dlg.classList.contains('show')){ dlg.querySelector('[data-mode=""]').click(); return true; }
+    if(typeof camOpen === 'function' && camOpen()){ closeCamera(false); return true; }
+    const lb = document.getElementById('lightbox');
+    if(lb && lb.classList.contains('show')){ closeLightbox(); return true; }
+    const shell = document.querySelector('.shell');
+    if(shell && shell.classList.contains('panelOpen')){ shell.classList.remove('panelOpen'); return true; }
+    if(document.querySelector('.leaflet-popup')){ map.closePopup(); return true; }
+    return false;
+  };
+})();
+
+/* ======================= installable web app (iPhone "Add to Home Screen") =======================
+   When this file is served from an https website (e.g. GitHub Pages) next to manifest.webmanifest,
+   sw.js and icons/, it becomes an installable app that also opens offline. Not used inside the
+   Android app or when opened as a local file, so saved walks stay plain, portable .html files. */
+(function(){
+  const hosted = (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) &&
+                 location.hostname !== 'appassets.androidplatform.net' && !window.AndroidBridge;
+  if(!hosted) return;
+  const add = (tag, attrs) => { const el = document.createElement(tag); Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v)); document.head.appendChild(el); };
+  add('link', { rel: 'manifest', href: 'manifest.webmanifest' });
+  add('link', { rel: 'apple-touch-icon', href: 'icons/apple-touch-icon.png' });
+  add('meta', { name: 'theme-color', content: '#0f2a26' });
+  add('meta', { name: 'apple-mobile-web-app-capable', content: 'yes' });
+  add('meta', { name: 'mobile-web-app-capable', content: 'yes' });
+  add('meta', { name: 'apple-mobile-web-app-status-bar-style', content: 'black' });
+  add('meta', { name: 'apple-mobile-web-app-title', content: 'Site Walk' });
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+  }
+})();
+
+/* ======================= iPhone / iPad: save files through the share sheet =======================
+   Home-screen web apps on iOS can't download files the normal way, so every save
+   (site walk, field pack ZIP, CSV, GeoJSON…) opens the iOS share sheet instead:
+   Save to Files, OneDrive / Google Drive, Mail, AirDrop… */
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+(function(){
+  if(window.AndroidBridge || !IS_IOS || !navigator.share || !navigator.canShare) return;
+  document.documentElement.classList.add('iosDevice');
+  const blobs = new Map();
+  const origCreate = URL.createObjectURL.bind(URL), origRevoke = URL.revokeObjectURL.bind(URL);
+  URL.createObjectURL = function(obj){ const u = origCreate(obj); if(obj instanceof Blob) blobs.set(u, obj); return u; };
+  URL.revokeObjectURL = function(u){ setTimeout(() => { blobs.delete(u); origRevoke(u); }, 120000); };
+  const origClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function(){
+    const name = this.getAttribute('download');
+    const blob = name !== null ? blobs.get(this.href) : null;
+    if(!blob) return origClick.call(this);
+    const file = new File([blob], name || 'download', { type: (blob.type || 'application/octet-stream').split(';')[0] });
+    if(!navigator.canShare({ files: [file] })) return origClick.call(this);
+    shareFileNow(file);
+  };
+})();
+function shareFileNow(file){
+  navigator.share({ files: [file], title: file.name }).catch(e => {
+    if(e && e.name === 'AbortError') return;          // user closed the share sheet
+    offerShareButton(file);                            // e.g. the file took a while to build: needs a fresh tap
+  });
+}
+function offerShareButton(file){
+  let d = document.getElementById('shareDlg');
+  if(!d){
+    d = document.createElement('div');
+    d.id = 'shareDlg';
+    d.className = 'modalBack';
+    d.innerHTML = `<div class="modalBox"><h3>File ready</h3><div class="impName" id="shareName"></div>
+      <div class="impCounts">Tap <b>Share / save</b>, then choose <b>Save to Files</b>, OneDrive, Google Drive, Mail or AirDrop to get it to your laptop.</div>
+      <button class="btn solid" id="shareGo" style="width:100%;padding:12px;">Share / save</button>
+      <button class="btn ghost" id="shareCancel" style="width:100%;margin-top:8px;">Close</button></div>`;
+    document.body.appendChild(d);
+    d.querySelector('#shareCancel').onclick = () => d.classList.remove('show');
+  }
+  d.querySelector('#shareName').textContent = `${file.name} (${(file.size / 1048576).toFixed(1)} MB)`;
+  d.querySelector('#shareGo').onclick = () => { d.classList.remove('show'); shareFileNow(file); };
+  d.classList.add('show');
+}
+
+let allPhotos = [];   // every photo currently plotted (all user-added)
+let markers = {};     // id -> leaflet marker
+let lightboxOpenId = null; // id of the photo currently shown in the lightbox, if any
+const STORAGE_KEY = "site_walk_photos_v1";
+
+/* ======================= map setup ======================= */
+const map = L.map('map', { zoomControl:true }).setView([20, 0], 2);
+const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+function starPoints(cx, cy, outerR, innerR, points){
+  const pts = [];
+  const step = Math.PI / points;
+  for(let i = 0; i < 2 * points; i++){
+    const r = (i % 2 === 0) ? outerR : innerR;
+    const angle = i * step - Math.PI / 2;
+    pts.push(`${(cx + r * Math.cos(angle)).toFixed(2)},${(cy + r * Math.sin(angle)).toFixed(2)}`);
+  }
+  return pts.join(' ');
+}
+
+function shapeMarkup(shape, color){
+  const attrs = `fill="${color}" stroke="#0f2a26" stroke-width="2"`;
+  switch(shape){
+    case 'square':
+      return `<rect x="7" y="7" width="20" height="20" rx="4" ${attrs}/>`;
+    case 'diamond':
+      return `<rect x="10" y="10" width="14" height="14" ${attrs} transform="rotate(45 17 17)"/>`;
+    case 'star':
+      return `<polygon points="${starPoints(17,17,11,5,5)}" ${attrs}/>`;
+    case 'circle':
+    default:
+      return `<circle cx="17" cy="17" r="10" ${attrs}/>`;
+  }
+}
+
+/* Marker appearance is per-photo and editable (color/shape/number size), with
+   sensible defaults for photos saved before these fields existed. */
+function markerColor(p){ return p.color || (p.source === 'manual' ? '#f2668b' : '#2fc6b8'); }
+function markerShape(p){ return p.shape || 'circle'; }
+function markerFontSize(p){ return p.fontSize || 11; }
+
+function contrastColor(hex){
+  const c = (hex || '#2fc6b8').replace('#','');
+  const r = parseInt(c.substr(0,2),16), g = parseInt(c.substr(2,2),16), b = parseInt(c.substr(4,2),16);
+  const yiq = (r*299 + g*587 + b*114) / 1000;
+  return yiq >= 150 ? '#0f2a26' : '#eef2f0';
+}
+
+function arrowIcon(dir, color, number, shape, fontSize){
+  shape = shape || 'circle';
+  fontSize = fontSize || 11;
+  const numberLabel = (number != null)
+    ? `<g transform="rotate(${-dir} 17 17)"><text x="17" y="${(17 + fontSize * 0.32).toFixed(2)}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${fontSize}" font-weight="700" fill="#0f2a26">${number}</text></g>`
+    : '';
+  const svg = `
+    <svg class="arrowIcon" width="34" height="34" viewBox="0 0 34 34" xmlns="http://www.w3.org/2000/svg" style="transform:rotate(${dir}deg);">
+      ${shapeMarkup(shape, color)}
+      <path d="M17 3 L23 15 L17 11.5 L11 15 Z" fill="${color}" stroke="#0f2a26" stroke-width="1.5" stroke-linejoin="round"/>
+      ${numberLabel}
+    </svg>`;
+  return L.divIcon({
+    html: svg,
+    className: '',
+    iconSize: [34,34],
+    iconAnchor: [17,17],
+    popupAnchor: [0,-14]
+  });
+}
+
+function fmtDir(deg){
+  const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+  const ix = Math.round(deg / 22.5) % 16;
+  return `${Math.round(deg)}° (${dirs[ix]})`;
+}
+
+/* ---- auto-generated per-photo description: "<Road name>, facing <compass dir>" ----
+   Road name comes from OpenStreetMap's free Nominatim reverse-geocoding
+   endpoint (no API key). Requests are queued and spaced out to stay
+   within Nominatim's usage policy (max ~1 request/second). */
+const geocodeCache = {};
+let geocodeQueue = Promise.resolve();
+function queueReverseGeocode(lat, lng){
+  const key = lat.toFixed(4)+','+lng.toFixed(4);
+  if(geocodeCache[key] !== undefined) return Promise.resolve(geocodeCache[key]);
+  const run = geocodeQueue.then(async ()=>{
+    try{
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=17&addressdetails=1`;
+      const res = await fetch(url, { headers:{ 'Accept':'application/json' } });
+      const data = await res.json();
+      const a = data.address || {};
+      const road = a.road || a.pedestrian || a.footway || a.cycleway || a.residential || a.neighbourhood || (data.display_name ? data.display_name.split(',')[0] : null);
+      geocodeCache[key] = road || null;
+    }catch(e){
+      geocodeCache[key] = null;
+    }
+    await new Promise(r=>setTimeout(r, 1000)); // stay polite: ~1 req/sec
+    return geocodeCache[key];
+  });
+  geocodeQueue = run;
+  return run;
+}
+
+function descText(p){
+  if(p.roadPending) return 'Locating road…';
+  const facing = p.dirSrc === 'none' ? 'heading not recorded' : `facing ${fmtDir(p.dir)}`;
+  return p.road ? `${p.road}, ${facing}` : facing.charAt(0).toUpperCase() + facing.slice(1);
+}
+
+function generateDescription(p){
+  p.roadPending = true;
+  updatePhotoUI(p.id);
+  queueReverseGeocode(p.lat, p.lng).then(road=>{
+    p.road = road;
+    p.roadPending = false;
+    updatePhotoUI(p.id);
+    savePersisted();
+  });
+}
+
+/* ---- auto-generated site title, based on where the photos actually are ---- */
+const areaCache = {};
+let areaQueue = Promise.resolve();
+function reverseGeocodeArea(lat, lng){
+  const key = lat.toFixed(3)+','+lng.toFixed(3);
+  if(areaCache[key] !== undefined) return Promise.resolve(areaCache[key]);
+  const run = areaQueue.then(async ()=>{
+    try{
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1`;
+      const res = await fetch(url, { headers:{ 'Accept':'application/json' } });
+      const data = await res.json();
+      const a = data.address || {};
+      areaCache[key] = a.suburb || a.neighbourhood || a.town || a.village || a.city_district || a.city || a.county || null;
+    }catch(e){
+      areaCache[key] = null;
+    }
+    await new Promise(r=>setTimeout(r, 1000));
+    return areaCache[key];
+  });
+  areaQueue = run;
+  return run;
+}
+let titleDebounce = null;
+function scheduleTitleUpdate(){
+  clearTimeout(titleDebounce);
+  titleDebounce = setTimeout(computeSiteTitle, 700);
+}
+async function computeSiteTitle(){
+  if(allPhotos.length === 0){
+    setSiteTitle('Field Photo Log', 'UPLOAD TO BEGIN');
+    return;
+  }
+  const avgLat = allPhotos.reduce((s,p)=>s+p.lat,0) / allPhotos.length;
+  const avgLng = allPhotos.reduce((s,p)=>s+p.lng,0) / allPhotos.length;
+  const area = await reverseGeocodeArea(avgLat, avgLng);
+  if(area) setSiteTitle(`${area} Site Walk`, 'AUTO-TITLED FROM LOCATION');
+  else setSiteTitle('Field Photo Log', `${allPhotos.length} PHOTO${allPhotos.length===1?'':'S'}`);
+}
+function setSiteTitle(title, tag){
+  document.getElementById('siteTitle').textContent = title;
+  document.getElementById('siteTag').textContent = tag;
+  document.title = title + ' — Photo Log';
+}
+
+/* ======================= marker + list rendering ======================= */
+function updatePhotoUI(id){
+  const p = allPhotos.find(x=>x.id===id);
+  if(!p) return;
+  const m = markers[id];
+  if(m){
+    if(m.isPopupOpen && m.isPopupOpen()){
+      // Update the open popup in place: rebuilding it would wipe a comment being typed.
+      const el = m.getPopup() && m.getPopup().getElement();
+      if(el){
+        const d = el.querySelector('#desc-'+id); if(d) d.textContent = descText(p);
+        const c = el.querySelector('#coords-'+id); if(c) c.textContent = `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`;
+        const l = el.querySelector('#plinks-'+id); if(l) l.innerHTML = linksHtml(p, true);
+      }
+    } else {
+      m.setPopupContent(popupHtml(p));
+    }
+  }
+  const rowLinks = document.getElementById('rlinks-'+id);
+  if(rowLinks) rowLinks.innerHTML = linksHtml(p, false);
+  const descEl = document.getElementById('desc-'+id);
+  if(descEl) descEl.textContent = descText(p);
+  const coordEl = document.getElementById('coords-'+id);
+  if(coordEl) coordEl.textContent = `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`;
+  const rowCoordEl = document.getElementById('row-coords-'+id);
+  if(rowCoordEl) rowCoordEl.textContent = `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
+}
+
+function shapeOptionsHtml(current){
+  const shapes = [['circle','● Circle'],['square','■ Square'],['diamond','◆ Diamond'],['star','★ Star']];
+  return shapes.map(([val,label]) => `<option value="${val}" ${val===current?'selected':''}>${label}</option>`).join('');
+}
+
+function popupHtml(p){
+  const color = markerColor(p), shape = markerShape(p), fontSize = markerFontSize(p);
+  const isVid = p.mediaType === 'video';
+  const isAud = p.mediaType === 'audio';
+  const durLabel = (isVid || isAud) && p.duration ? ` (${fmtDuration(p.duration)})` : '';
+  const accLabel = p.gpsAcc != null ? ` · ±${Math.round(p.gpsAcc)} m` : '';
+  return `
+    <div class="popupCard">
+      <div class="thumbWrap" onclick="openLightbox('${p.id}')">
+        <img src="${thumbSrc(p)}">
+        ${isVid || isAud ? '<div class="playBadge"></div>' : ''}
+      </div>
+      <div class="pname">#${p.num} — ${escapeHtml(p.label)}${durLabel}</div>
+      <div class="pmeta">
+        <div id="desc-${p.id}">${descText(p)}</div>
+        <div id="coords-${p.id}">${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}</div>${accLabel ? `<div>GPS accuracy${accLabel}</div>` : ''}
+        <div class="linkInfo" id="plinks-${p.id}">${linksHtml(p, true)}</div>
+        <div class="dragHint">↕ drag to move · ctrl+drag to rotate</div>
+      </div>
+      <div class="commentLabel">Marker style</div>
+      <div class="styleRow">
+        <label class="styleField">Color<input type="color" id="color-${p.id}" value="${color}"></label>
+        <label class="styleField">Shape<select id="shape-${p.id}">${shapeOptionsHtml(shape)}</select></label>
+        <label class="styleField">Size <span class="fieldVal" id="fontVal-${p.id}">${fontSize}px</span><input type="range" id="font-${p.id}" min="8" max="16" step="1" value="${fontSize}"></label>
+      </div>
+      <div class="commentLabel">Comment</div>
+      <textarea class="commentBox" id="comment-${p.id}" placeholder="Add a comment...">${escapeHtml(p.comment || '')}</textarea>
+      <button onclick="openLightbox('${p.id}')">${isVid ? 'Play video' : isAud ? 'Play audio note' : 'Open full photo'}</button>
+      ${fieldHeadingAvailable() ? `<button onclick="setDirFromCompass('${p.id}')">Set facing from phone compass</button>` : ''}
+      <button class="removeBtn" onclick="removePhoto('${p.id}')">Remove from log</button>
+    </div>`;
+}
+
+function escapeHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function commentSnippetHtml(p){
+  return p.comment ? escapeHtml(p.comment) : '<span style="opacity:.5;">No comment</span>';
+}
+
+/* Photo numbers reflect upload order and are reassigned whenever the list
+   changes (add/remove/load), so map pins and the exported list always agree. */
+function renumberPhotos(){
+  allPhotos.forEach((p, i)=>{ p.num = i + 1; });
+}
+
+function refreshAllMarkerIcons(){
+  allPhotos.forEach(p=>{
+    const marker = markers[p.id];
+    if(!marker) return;
+    marker.setIcon(arrowIcon(p.dir, markerColor(p), p.num, markerShape(p), markerFontSize(p)));
+  });
+}
+
+/* Wires up the comment box and style controls (color/shape/size) inside a marker's
+   popup. Must be re-run every time the popup's DOM is rebuilt (on open, and after
+   setPopupContent), since Leaflet recreates the content nodes from scratch each time. */
+function bindPopupControls(id){
+  const p = allPhotos.find(x=>x.id===id);
+  if(!p) return;
+  const box = document.getElementById('comment-'+id);
+  if(box) box.onblur = ()=> saveComment(id, box.value);
+  const colorInput = document.getElementById('color-'+id);
+  if(colorInput) colorInput.onchange = ()=> updateMarkerStyle(id, { color: colorInput.value });
+  const shapeSelect = document.getElementById('shape-'+id);
+  if(shapeSelect) shapeSelect.onchange = ()=> updateMarkerStyle(id, { shape: shapeSelect.value });
+  const fontRange = document.getElementById('font-'+id);
+  if(fontRange){
+    const fontVal = document.getElementById('fontVal-'+id);
+    fontRange.oninput = ()=> { if(fontVal) fontVal.textContent = fontRange.value + 'px'; };
+    fontRange.onchange = ()=> updateMarkerStyle(id, { fontSize: +fontRange.value });
+  }
+}
+
+function saveComment(id, value){
+  const p = allPhotos.find(x=>x.id===id);
+  if(!p) return;
+  if(p.comment === value) return; // nothing changed — skip the DOM/popup refresh below
+  p.comment = value;
+  savePersisted();
+  const snippetEl = document.getElementById('comment-snippet-'+id);
+  if(snippetEl) snippetEl.innerHTML = commentSnippetHtml(p);
+  const popupBox = document.getElementById('comment-'+id);
+  if(popupBox && popupBox.value !== value) popupBox.value = value;
+  const lbComment = document.getElementById('lbCommentBox');
+  if(lbComment && lbComment.dataset.id === id && lbComment.value !== value) lbComment.value = value;
+  // Leaflet rebuilds a popup's DOM from its stored HTML string every time it reopens.
+  // Without this, reopening the popup would show a blank comment box again — and
+  // blurring out of that blank box would then overwrite the real comment with ''.
+  if(markers[id]){
+    markers[id].setPopupContent(popupHtml(p));
+    bindPopupControls(id);
+  }
+}
+
+/* Updates a single photo's marker appearance (color/shape/number size). Editable
+   from both the map popup and the full-screen lightbox, kept in sync between them. */
+function updateMarkerStyle(id, changes){
+  const p = allPhotos.find(x=>x.id===id);
+  if(!p) return;
+  Object.assign(p, changes);
+  savePersisted();
+  if(markers[id]){
+    markers[id].setIcon(arrowIcon(p.dir, markerColor(p), p.num, markerShape(p), markerFontSize(p)));
+    markers[id].setPopupContent(popupHtml(p));
+    bindPopupControls(id);
+  }
+  const numBadge = document.querySelector(`#row-${id} .numBadge`);
+  if(numBadge){
+    numBadge.style.background = markerColor(p);
+    numBadge.style.color = contrastColor(markerColor(p));
+  }
+  if(lightboxOpenId === id){
+    const lbColor = document.getElementById('lbColor');
+    const lbShape = document.getElementById('lbShape');
+    const lbFontSize = document.getElementById('lbFontSize');
+    const lbFontSizeVal = document.getElementById('lbFontSizeVal');
+    if(lbColor && lbColor.value !== markerColor(p)) lbColor.value = markerColor(p);
+    if(lbShape && lbShape.value !== markerShape(p)) lbShape.value = markerShape(p);
+    if(lbFontSize && +lbFontSize.value !== markerFontSize(p)){
+      lbFontSize.value = markerFontSize(p);
+      if(lbFontSizeVal) lbFontSizeVal.textContent = markerFontSize(p) + 'px';
+    }
+  }
+}
+
+function csvEscape(val){
+  const s = String(val ?? '');
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+}
+
+function buildPhotoListCsv(){
+  const typeName = t => t === 'video' ? 'Video' : t === 'audio' ? 'Audio' : 'Photo';
+  const rows = [['Photo #','Type','File','Label','Latitude','Longitude','Direction','Comment',
+                 'Captured at','GPS accuracy (m)','Linked sketch points','Distance to linked points (m)']];
+  allPhotos.forEach(p=>{
+    const links = p.links || [];
+    rows.push([p.num, typeName(p.mediaType), p.fileName || '', p.label, p.lat.toFixed(6), p.lng.toFixed(6),
+      p.dirSrc === 'none' ? '' : fmtDir(p.dir), p.comment || '',
+      p.capturedAt || '', p.gpsAcc != null ? Math.round(p.gpsAcc) : '',
+      links.map(l => linkName(l)).join('; '), links.map(l => l.d.toFixed(1)).join('; ')]);
+  });
+  return rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
+}
+
+function exportPhotoList(){
+  if(!allPhotos.length){ alert('No photos to export yet — add some photos to the map first.'); return; }
+  const csv = buildPhotoListCsv();
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const baseName = (typeof suggestedFilename === 'function' ? suggestedFilename().replace(/\.html?$/i,'') : 'site-walk');
+  a.href = url;
+  a.download = baseName + '_photo_list.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+document.getElementById('exportListBtn').onclick = exportPhotoList;
+
+function addMarker(p){
+  const marker = L.marker([p.lat, p.lng], { icon: arrowIcon(p.dir, markerColor(p), p.num, markerShape(p), markerFontSize(p)), draggable: true }).addTo(map);
+  marker.bindPopup(popupHtml(p));
+  marker.on('popupopen', ()=> bindPopupControls(p.id));
+  // While open, a popup is only patched in place (see updatePhotoUI); rebuild it on close
+  // so the next opening shows current links/heading/road.
+  marker.on('popupclose', ()=> { if(markers[p.id] === marker) marker.setPopupContent(popupHtml(p)); });
+  marker.on('dragstart', ()=> marker.closePopup());
+  marker.on('dragend', (e)=> onMarkerDragEnd(p.id, e.target.getLatLng()));
+  markers[p.id] = marker;
+
+  const el = marker.getElement();
+  if(el){
+    el.addEventListener('mousedown', function(evt){
+      if(!ctrlActive) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      startRotate(p.id);
+    });
+  }
+  if(p.road === undefined) generateDescription(p);
+}
+
+function rebuildList(){
+  const listEl = document.getElementById('photoList');
+  if(allPhotos.length === 0){
+    listEl.innerHTML = '<div class="empty">No photos yet — upload one above to start the site walk.</div>';
+    document.getElementById('countLabel').textContent = '0 photos plotted';
+    return;
+  }
+  listEl.innerHTML = '';
+  allPhotos.forEach(p=>{
+    const row = document.createElement('div');
+    row.className = 'photoRow';
+    row.id = 'row-'+p.id;
+    const isVid = p.mediaType === 'video';
+    const isAud = p.mediaType === 'audio';
+    const durLabel = (isVid || isAud) && p.duration ? ` (${fmtDuration(p.duration)})` : '';
+    row.innerHTML = `
+      <div class="thumbWrap">
+        <img src="${thumbSrc(p)}">
+        ${isVid || isAud ? '<div class="playBadge"></div>' : ''}
+      </div>
+      <div class="numBadge" style="background:${markerColor(p)};color:${contrastColor(markerColor(p))};">${p.num}</div>
+      <div class="photoMeta">
+        <div class="name">${isAud ? '🎙 ' : ''}${escapeHtml(p.label)}${durLabel}</div>
+        <div class="dir" id="desc-${p.id}">${descText(p)}</div>
+        <div class="coords" id="row-coords-${p.id}">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.gpsAcc != null ? ` ±${Math.round(p.gpsAcc)} m` : ''}</div>
+        <div class="linkInfo" id="rlinks-${p.id}">${linksHtml(p, false)}</div>
+        <div class="comment-snippet" id="comment-snippet-${p.id}">${commentSnippetHtml(p)}</div>
+      </div>
+      <button class="rowDelete" title="Remove from log" data-id="${p.id}">✕</button>`;
+    const goTo = ()=>{ closePanelOnMobile(); map.setView([p.lat,p.lng], 18); markers[p.id].openPopup(); highlightRow(p.id); };
+    row.querySelector('.photoMeta').onclick = goTo;
+    row.querySelector('.thumbWrap').onclick = goTo;
+    row.querySelector('.rowDelete').onclick = (e)=>{ e.stopPropagation(); removePhoto(p.id); };
+    listEl.appendChild(row);
+  });
+  document.getElementById('countLabel').textContent = `${allPhotos.length} photo${allPhotos.length===1?'':'s'} plotted`;
+}
+
+function highlightRow(id){
+  document.querySelectorAll('.photoRow').forEach(r=>r.classList.remove('active'));
+  const r = document.getElementById('row-'+id);
+  if(r) r.classList.add('active');
+}
+
+function openLightbox(id){
+  const p = allPhotos.find(x=>x.id===id);
+  if(!p) return;
+  lightboxOpenId = id;
+  const lbImg = document.getElementById('lbImg');
+  const lbVideo = document.getElementById('lbVideo');
+  const lbAudio = document.getElementById('lbAudio');
+  const lbMissing = document.getElementById('lbMissing');
+  lbMissing.classList.remove('show');
+  const src = fullSrc(p);
+  const onLoadError = ()=>{
+    lbImg.style.display = 'none';
+    lbVideo.style.display = 'none';
+    lbAudio.style.display = 'none';
+    lbMissing.textContent = p.stored
+      ? `Can't play "${p.fileName}" here. It was captured on a phone and is kept in that phone's browser — export a field pack (ZIP) there and open the unzipped .html instead.`
+      : `Can't display the original file. Make sure "${p.fileName || 'this file'}" is in the same folder as this .html file (or that your browser supports its format).`;
+    lbMissing.classList.add('show');
+  };
+  lbVideo.pause(); lbAudio.pause();
+  lbImg.style.display = 'none'; lbVideo.style.display = 'none'; lbAudio.style.display = 'none';
+  if(p.mediaType === 'video'){
+    lbImg.src = ''; lbAudio.removeAttribute('src');
+    lbVideo.style.display = '';
+    lbVideo.poster = thumbSrc(p);
+    lbVideo.onerror = onLoadError;
+    lbVideo.src = src;
+    lbVideo.load();
+  } else if(p.mediaType === 'audio'){
+    lbVideo.removeAttribute('src');
+    lbImg.style.display = '';
+    lbImg.onerror = null;
+    lbImg.src = thumbSrc(p);
+    lbAudio.style.display = '';
+    lbAudio.onerror = onLoadError;
+    lbAudio.src = src;
+    lbAudio.load();
+  } else {
+    lbVideo.removeAttribute('src'); lbAudio.removeAttribute('src');
+    lbImg.style.display = '';
+    lbImg.onerror = onLoadError;
+    lbImg.src = src;
+  }
+  document.getElementById('lbName').textContent = `#${p.num} — ${p.label}`;
+  document.getElementById('lbDesc').textContent = descText(p);
+  document.getElementById('lbCoords').textContent = `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}${p.gpsAcc != null ? ` (±${Math.round(p.gpsAcc)} m)` : ''}`;
+  document.getElementById('lbLinks').innerHTML = linksHtml(p, true);
+  const lbDir = document.getElementById('lbDir');
+  const lbDirVal = document.getElementById('lbDirVal');
+  lbDir.value = Math.round(p.dir || 0) % 360;
+  lbDirVal.textContent = p.dirSrc === 'none' ? 'not recorded' : fmtDir(p.dir || 0);
+  lbDir.oninput = ()=> { lbDirVal.textContent = fmtDir(+lbDir.value); previewDir(id, +lbDir.value); };
+  lbDir.onchange = ()=> setPhotoDir(id, +lbDir.value, 'manual');
+  const lbCompass = document.getElementById('lbCompass');
+  lbCompass.onclick = ()=> setDirFromCompass(id);
+  const lbComment = document.getElementById('lbCommentBox');
+  lbComment.value = p.comment || '';
+  lbComment.dataset.id = id;
+  lbComment.onblur = ()=> saveComment(id, lbComment.value);
+  const lbColor = document.getElementById('lbColor');
+  const lbShape = document.getElementById('lbShape');
+  const lbFontSize = document.getElementById('lbFontSize');
+  const lbFontSizeVal = document.getElementById('lbFontSizeVal');
+  lbColor.value = markerColor(p);
+  lbShape.value = markerShape(p);
+  lbFontSize.value = markerFontSize(p);
+  lbFontSizeVal.textContent = markerFontSize(p) + 'px';
+  lbColor.onchange = ()=> updateMarkerStyle(id, { color: lbColor.value });
+  lbShape.onchange = ()=> updateMarkerStyle(id, { shape: lbShape.value });
+  lbFontSize.oninput = ()=> { lbFontSizeVal.textContent = lbFontSize.value + 'px'; };
+  lbFontSize.onchange = ()=> updateMarkerStyle(id, { fontSize: +lbFontSize.value });
+  document.getElementById('lbRemove').onclick = ()=>{
+    document.getElementById('lightbox').classList.remove('show');
+    lightboxOpenId = null;
+    removePhoto(id);
+  };
+  document.getElementById('lightbox').classList.add('show');
+  map.closePopup();
+}
+function closeLightbox(){
+  document.getElementById('lightbox').classList.remove('show');
+  document.getElementById('lbVideo').pause();
+  document.getElementById('lbAudio').pause();
+  lightboxOpenId = null;
+}
+document.getElementById('lbClose').onclick = closeLightbox;
+document.getElementById('lightbox').addEventListener('click', e=>{
+  if(e.target.id==='lightbox') closeLightbox();
+});
+
+/* ======================= remove a photo ======================= */
+function removePhoto(id){
+  const p = allPhotos.find(x=>x.id===id);
+  if(!p) return;
+  if(!confirm(`Remove "${p.label}" from the photo log?`)) return;
+  if(markers[id]){ map.removeLayer(markers[id]); delete markers[id]; }
+  if(p._liveUrl) URL.revokeObjectURL(p._liveUrl);
+  allPhotos = allPhotos.filter(x=>x.id!==id);
+  if(p.stored && p.fileName && !allPhotos.some(x => x.fileName === p.fileName)) FieldStore.delMedia(p.fileName).catch(()=>{});
+  renumberPhotos();
+  refreshAllMarkerIcons();
+  rebuildList();
+  drawLinkLines();
+  renderLinkedMediaPanel();
+  savePersisted();
+  scheduleTitleUpdate();
+  map.closePopup();
+}
+
+/* ======================= drag to move a pin's location ======================= */
+function onMarkerDragEnd(id, latlng){
+  const p = allPhotos.find(x=>x.id===id);
+  if(!p) return;
+  p.lat = latlng.lat;
+  p.lng = latlng.lng;
+  p.road = undefined; // location changed — re-derive the road name
+  computeLinks(p);
+  drawLinkLines();
+  renderLinkedMediaPanel();
+  updatePhotoUI(id);
+  generateDescription(p);
+  savePersisted();
+  scheduleTitleUpdate();
+}
+
+/* ======================= ctrl+drag to rotate a pin's direction ======================= */
+let ctrlActive = false;
+let rotatingId = null;
+
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Control' && !ctrlActive){
+    ctrlActive = true;
+    Object.values(markers).forEach(m=>m.dragging.disable());
+    map.getContainer().style.cursor = 'crosshair';
+  }
+});
+document.addEventListener('keyup', (e)=>{
+  if(e.key === 'Control'){
+    ctrlActive = false;
+    Object.values(markers).forEach(m=>m.dragging.enable());
+    map.getContainer().style.cursor = '';
+    if(rotatingId) finishRotate();
+  }
+});
+window.addEventListener('blur', ()=>{
+  if(ctrlActive){
+    ctrlActive = false;
+    Object.values(markers).forEach(m=>m.dragging.enable());
+    map.getContainer().style.cursor = '';
+  }
+  if(rotatingId) finishRotate();
+});
+
+function startRotate(id){
+  rotatingId = id;
+  map.dragging.disable();
+  map.closePopup();
+  document.addEventListener('mousemove', onRotateMove);
+  document.addEventListener('mouseup', onRotateStop);
+}
+function onRotateMove(e){
+  const p = allPhotos.find(x=>x.id===rotatingId);
+  const marker = p && markers[p.id];
+  if(!p || !marker) return;
+  const centerPt = map.latLngToContainerPoint(marker.getLatLng());
+  const mapRect = map.getContainer().getBoundingClientRect();
+  const mx = e.clientX - mapRect.left;
+  const my = e.clientY - mapRect.top;
+  const dx = mx - centerPt.x, dy = my - centerPt.y;
+  let deg = Math.atan2(dx, -dy) * 180 / Math.PI;
+  deg = (deg + 360) % 360;
+  p._pendingDir = deg;
+  const svg = marker.getElement() && marker.getElement().querySelector('svg');
+  if(svg) svg.style.transform = `rotate(${deg}deg)`;
+}
+function onRotateStop(){
+  document.removeEventListener('mousemove', onRotateMove);
+  document.removeEventListener('mouseup', onRotateStop);
+  finishRotate();
+}
+function finishRotate(){
+  map.dragging.enable();
+  const id = rotatingId;
+  rotatingId = null;
+  if(!id) return;
+  const p = allPhotos.find(x=>x.id===id);
+  if(p && p._pendingDir != null){
+    p.dir = Math.round(p._pendingDir * 10) / 10;
+    delete p._pendingDir;
+    updatePhotoUI(id);
+    savePersisted();
+  }
+}
+
+/* ======================= persistence (works inside Claude artifacts; harmless no-op elsewhere) ======================= */
+async function loadPersisted(){
+  try{
+    if(!window.storage) return [];
+    const res = await window.storage.get(STORAGE_KEY, false);
+    return res && res.value ? JSON.parse(res.value) : [];
+  }catch(e){ return []; }
+}
+async function savePersisted(){
+  if(typeof scheduleDeviceSave === 'function') scheduleDeviceSave(); // phone/browser storage (IndexedDB)
+  try{
+    if(!window.storage) return;
+    await window.storage.set(STORAGE_KEY, JSON.stringify(cleanPhotosForSave()), false);
+  }catch(e){ console.warn('storage save failed', e); }
+}
+
+/* ======================= save / open a self-contained site walk .html file =======================
+   "Save" writes the current photo log (locations, headings, images, labels — everything)
+   into the embedded data placeholder of a fresh copy of this page, then downloads it.
+   "Open" reads that placeholder back out of a previously saved file. */
+const EMBED_RE = /(<script[^>]*id="embeddedPhotoData"[^>]*>)[\s\S]*?(<\/script>)/i;
+const SKETCH_RE = /(<script[^>]*id="embeddedSketchData"[^>]*>)[\s\S]*?(<\/script>)/i;
+function extractSketchData(htmlText){
+  const match = htmlText.match(SKETCH_RE);
+  if(!match) return null;
+  const inner = match[0].replace(/^<script[^>]*>/i, '').replace(/<\/script>$/i, '').trim().replace(/<\\\/script/gi, '<'+'/script');
+  if(!inner) return null;
+  try{ const d = JSON.parse(inner); return d && Array.isArray(d.features) ? d : null; }catch(e){ return null; }
+}
+
+function cleanPhotosForSave(){
+  // drop session-only fields (anything starting with "_", e.g. live blob URLs)
+  return allPhotos.map(p => Object.fromEntries(Object.entries(p).filter(([k]) => k.charAt(0) !== '_')));
+}
+
+function extractEmbeddedData(htmlText){
+  const match = htmlText.match(EMBED_RE);
+  if(!match) return null;
+  const inner = match[0].replace(/^<script[^>]*>/i, '').replace(/<\/script>$/i, '');
+  const unescaped = inner.trim().replace(/<\\\/script/gi, '</script');
+  if(!unescaped) return [];
+  try{
+    const data = JSON.parse(unescaped);
+    return Array.isArray(data) ? data : null;
+  }catch(e){
+    console.warn('Could not parse embedded photo data', e);
+    return null;
+  }
+}
+
+function readEmbeddedDataFromPage(){
+  const el = document.getElementById('embeddedPhotoData');
+  if(!el) return null;
+  const txt = el.textContent.trim();
+  if(!txt) return [];
+  try{
+    const data = JSON.parse(txt);
+    return Array.isArray(data) ? data : null;
+  }catch(e){ return null; }
+}
+
+function suggestedFilename(){
+  const base = (document.getElementById('siteTitle').textContent || 'site-walk')
+    .replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_');
+  return (base || 'site-walk') + '.html';
+}
+
+function buildSiteWalkHtml(){
+  const json = JSON.stringify(cleanPhotosForSave());
+  const safeJson = json.replace(/<\/script/gi, '<\\/script'); // defensive escaping
+  const skJson = (window.sketchAPI ? JSON.stringify(window.sketchAPI.toFC()) : '{}').replace(/<\/script/gi, '<\\/script');
+  return PRISTINE_HTML.replace(EMBED_RE, (m,a,b)=>a+safeJson+b).replace(SKETCH_RE, (m,a,b)=>a+skJson+b);
+}
+
+function saveSiteWalk(){
+  const json = JSON.stringify(cleanPhotosForSave());
+  const approxMB = (json.length / 1024 / 1024).toFixed(0);
+  if(json.length > 50 * 1024 * 1024){
+    if(!confirm(`This site walk is roughly ${approxMB}MB — mostly from the embedded thumbnails of a large number of photos/videos. Continue saving?`)) return;
+  }
+  const outHtml = buildSiteWalkHtml();
+  const blob = new Blob([outHtml], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = suggestedFilename();
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function loadPhotosData(data){
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  markers = {};
+  allPhotos.forEach(p => { if(p._liveUrl) URL.revokeObjectURL(p._liveUrl); });
+  allPhotos = Array.isArray(data) ? data : [];
+  renumberPhotos();
+  allPhotos.forEach(p => addMarker(p));
+  rebuildList();
+  savePersisted();
+  scheduleTitleUpdate();
+  rehydrateStoredMedia();
+  relinkSoon();
+  if(allPhotos.length){
+    const bounds = L.latLngBounds(allPhotos.map(p => [p.lat, p.lng]));
+    map.fitBounds(bounds.pad(0.3));
+  } else {
+    map.setView([20, 0], 2);
+  }
+}
+
+function openSiteWalkFile(file){
+  const reader = new FileReader();
+  reader.onload = (e) => handleIncomingWalk(e.target.result, file.name);
+  reader.onerror = () => alert(`Couldn't read "${file.name}".`);
+  reader.readAsText(file);
+}
+
+/* ---------- loading a newer copy of the walk (e.g. new sketches drawn on the laptop) ----------
+   A saved walk .html (any version of this tool) or a sketch GeoJSON can be brought in
+   without losing what is already here: by default only the sketch is taken from the file,
+   and photos / videos / audio notes captured on this device are kept and re-linked. */
+function parseWalkFile(text, name){
+  const t = String(text || '').trim();
+  if(/\.(geo)?json$/i.test(name || '') || t.charAt(0) === '{'){
+    const fc = JSON.parse(t);
+    if(!fc || !Array.isArray(fc.features)) throw new Error('no sketch shapes found in this GeoJSON file');
+    return { photos: null, sketch: fc };
+  }
+  const photos = extractEmbeddedData(t);
+  const sketch = extractSketchData(t);
+  if(photos === null && !sketch) throw new Error('this is not a saved site walk file (no walk data inside it)');
+  return { photos, sketch };
+}
+function mergePhotoRecords(incoming){
+  let added = 0, updated = 0;
+  const editable = ['comment', 'lat', 'lng', 'dir', 'dirSrc', 'color', 'shape', 'fontSize', 'label', 'road'];
+  incoming.forEach(fp => {
+    const cur = allPhotos.find(p => p.id === fp.id) || (fp.fileName && allPhotos.find(p => p.fileName === fp.fileName));
+    if(cur){
+      editable.forEach(k => { if(fp[k] !== undefined) cur[k] = fp[k]; });
+      updated++;
+    } else {
+      const copy = Object.fromEntries(Object.entries(fp).filter(([k]) => k.charAt(0) !== '_'));
+      allPhotos.push(copy);
+      added++;
+    }
+  });
+  return { added, updated };
+}
+function redrawAllPhotos(){
+  // like loadPhotosData, but keeps this session's live media links
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  markers = {};
+  renumberPhotos();
+  allPhotos.forEach(p => addMarker(p));
+  rebuildList();
+  scheduleTitleUpdate();
+  rehydrateStoredMedia();
+}
+function applyIncomingWalk(parsed, mode, name){
+  const sk = parsed.sketch && Array.isArray(parsed.sketch.features) ? parsed.sketch : null;
+  const sAPI = window.sketchAPI;
+  let msg = '';
+  if(mode === 'replace'){
+    loadPhotosData(parsed.photos || []);
+    if(sAPI){ sAPI.clear(); if(sk) sAPI.loadFC(sk, !(parsed.photos || []).length); }
+    msg = `Loaded ${name}.`;
+  } else if(mode === 'sketch'){
+    if(sAPI){ sAPI.clear(); if(sk) sAPI.loadFC(sk, false); sAPI.fitAll(); }
+    msg = `Sketch replaced with the ${sk ? sk.features.length : 0} shape(s) from ${name}. Your ${allPhotos.length} photo/video/audio item(s) were kept.`;
+  } else if(mode === 'merge'){
+    const r = sk && sAPI ? sAPI.mergeFC(sk) : { added: 0, updated: 0, kept: 0 };
+    const pr = mergePhotoRecords(parsed.photos || []);
+    redrawAllPhotos();
+    if(sAPI) sAPI.fitAll();
+    msg = `Merged ${name}: shapes ${r.added} new / ${r.updated} updated, items ${pr.added} new / ${pr.updated} updated. Nothing on this device was removed.`;
+  }
+  lastSketchSig = null;
+  relinkAll();
+  savePersisted();
+  if(deviceReady){ clearTimeout(deviceSaveTimer); saveDeviceState(); }   // store the update right away
+  mapToast(msg, 6000);
+}
+function handleIncomingWalk(text, name){
+  let parsed;
+  try{ parsed = parseWalkFile(text, name); }
+  catch(e){ alert(`Couldn't open "${name}": ${e.message || e}`); return; }
+  const devPhotos = allPhotos.length, devShapes = window.sketchAPI ? window.sketchAPI.count() : 0;
+  if(!devPhotos && !devShapes){ applyIncomingWalk(parsed, 'replace', name); return; }
+  const fShapes = parsed.sketch ? parsed.sketch.features.length : 0;
+  const fPhotos = parsed.photos ? parsed.photos.length : 0;
+  showImportDialog(name, { fShapes, fPhotos, devShapes, devPhotos, sketchOnly: parsed.photos === null })
+    .then(mode => { if(mode) applyIncomingWalk(parsed, mode, name); });
+}
+function showImportDialog(name, c){
+  return new Promise(resolve => {
+    const d = byId('importDlg');
+    byId('importTitle').textContent = name;
+    byId('importCounts').innerHTML =
+      `The file has <b>${c.fShapes}</b> sketch shape${c.fShapes === 1 ? '' : 's'}` +
+      (c.sketchOnly ? '' : ` and <b>${c.fPhotos}</b> photo/video/audio item${c.fPhotos === 1 ? '' : 's'}`) +
+      `.<br>This device has <b>${c.devShapes}</b> shape${c.devShapes === 1 ? '' : 's'} and <b>${c.devPhotos}</b> item${c.devPhotos === 1 ? '' : 's'}.`;
+    byId('impReplace').style.display = c.sketchOnly ? 'none' : '';
+    const done = mode => {
+      d.classList.remove('show');
+      d.querySelectorAll('[data-mode]').forEach(b => b.onclick = null);
+      resolve(mode);
+    };
+    d.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
+      const m = b.dataset.mode;
+      if(m === 'replace' && c.devPhotos && !confirm('Replace everything? Photos, videos and audio notes captured on this device will disappear from the walk (export a field pack first if you need them).')) return;
+      done(m || null);
+    });
+    d.classList.add('show');
+  });
+}
+// Android app: a walk file opened with "Open with Site Walk" / shared to the app
+window.siteWalkIncomingFile = function(){
+  const B = window.AndroidBridge;
+  if(!B || !B.hasIncoming || !deviceReady) return false;   // fieldBoot picks it up once ready
+  if(!B.hasIncoming()) return false;
+  const name = B.incomingName() || 'walk.html';
+  const text = B.takeIncoming();
+  if(text) handleIncomingWalk(text, name);
+  return true;
+};
+
+document.getElementById('saveWalkBtn').onclick = saveSiteWalk;
+document.getElementById('openWalkBtn').onclick = () => document.getElementById('openWalkInput').click();
+document.getElementById('openWalkInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if(file) openSiteWalkFile(file);
+  e.target.value = '';
+});
+
+/* ======================= upload handling ======================= */
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+dropZone.onclick = ()=>fileInput.click();
+['dragover','dragenter'].forEach(ev=>dropZone.addEventListener(ev, e=>{e.preventDefault(); dropZone.classList.add('drag');}));
+['dragleave','drop'].forEach(ev=>dropZone.addEventListener(ev, e=>{e.preventDefault(); dropZone.classList.remove('drag');}));
+dropZone.addEventListener('drop', e=>{ handleFiles(e.dataTransfer.files); });
+fileInput.addEventListener('change', e=> handleFiles(e.target.files));
+
+function resizeToDataUrl(img, maxDim, quality){
+  const canvas = document.createElement('canvas');
+  let w = img.width, h = img.height;
+  if(w > h && w > maxDim){ h = Math.round(h * maxDim/w); w = maxDim; }
+  else if(h > maxDim){ w = Math.round(w * maxDim/h); h = maxDim; }
+  canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
+function isHeic(file){
+  const name = (file.name || '').toLowerCase();
+  return file.type === 'image/heic' || file.type === 'image/heif' ||
+         name.endsWith('.heic') || name.endsWith('.heif');
+}
+
+/* ---- resolving where to load a photo/video's full-size media from ----
+   Full-size media is NOT embedded in the saved file — only a small thumbnail is.
+   To display the original, this tool looks for it in this order:
+   1. A live blob URL, if the file was uploaded this session (works immediately,
+      even before you've saved/copied anything anywhere).
+   2. A relative filename reference — this only resolves if the original file
+      sits in the same folder as this .html file, with its filename unchanged.
+   3. A legacy embedded data URL, for files saved before this reference-based
+      version existed. */
+function fullSrc(p){
+  if(p._liveUrl) return p._liveUrl;
+  if(p.fileName) return encodeURIComponent(p.fileName);
+  return p.file || '';
+}
+function thumbSrc(p){
+  return p.thumb || p.file || '';
+}
+function checkDuplicateFileName(fileName){
+  return allPhotos.some(p => p.fileName === fileName);
+}
+
+function isAudio(file){
+  const name = (file.name || '').toLowerCase();
+  return (file.type || '').startsWith('audio/') ||
+         /\.(m4a|mp3|wav|aac|ogg|oga|opus|amr|3ga|flac)$/.test(name);
+}
+function isVideo(file){
+  if(isAudio(file)) return false;
+  const name = (file.name || '').toLowerCase();
+  return file.type.startsWith('video/') ||
+         /\.(mp4|mov|m4v|webm|avi|mkv|3gp)$/.test(name);
+}
+
+/* Grabs a still frame partway into the video to use as its thumbnail/poster,
+   and reports the clip's duration. Runs entirely in-browser via a hidden
+   <video> element — nothing is uploaded anywhere. */
+function captureVideoFrame(file){
+  return new Promise((resolve, reject)=>{
+    const url = URL.createObjectURL(file);
+    const videoEl = document.createElement('video');
+    videoEl.preload = 'metadata';
+    videoEl.muted = true;
+    videoEl.playsInline = true;
+    videoEl.src = url;
+    const cleanup = () => URL.revokeObjectURL(url);
+    videoEl.onloadedmetadata = () => {
+      // seek a little way in so we don't grab a black/blank opening frame
+      videoEl.currentTime = Math.min(0.5, (videoEl.duration || 1) / 2);
+    };
+    videoEl.onseeked = () => {
+      try{
+        const canvas = document.createElement('canvas');
+        canvas.width = videoEl.videoWidth || 640;
+        canvas.height = videoEl.videoHeight || 360;
+        canvas.getContext('2d').drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+        const frameDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        const duration = videoEl.duration;
+        cleanup();
+        resolve({ frameDataUrl, duration });
+      }catch(e){ cleanup(); reject(e); }
+    };
+    videoEl.onerror = () => { cleanup(); reject(new Error('Could not read video')); };
+  });
+}
+
+function fmtDuration(sec){
+  if(!sec || !isFinite(sec)) return '';
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function blobToDataUrl(blob){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function loadImageEl(src){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=>resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+/* exifr only understands image containers (JPEG/TIFF/HEIC) — it can't read the
+   GPS atom that MP4/MOV videos use, so on its own it silently finds nothing for
+   video files. This walks the MP4/MOV box structure by hand to pull location
+   out of the same "©xyz" atom that iPhone/Android camera apps write:
+     moov -> udta -> ©xyz                (classic QuickTime, iPhone .mov — most common)
+     moov -> meta -> ilst -> ©xyz -> data (iTunes-style, some Android/GoPro clips)
+   The atom holds an ISO-6709 string like "+37.3230-122.0322+061.000/". */
+async function readVideoGps(file){
+  try{
+    const buf = await file.arrayBuffer();
+    const view = new DataView(buf);
+    const bytes = new Uint8Array(buf);
+
+    function readBoxes(start, end){
+      const boxes = [];
+      let offset = start;
+      while(offset + 8 <= end){
+        let size = view.getUint32(offset);
+        const type = String.fromCharCode(bytes[offset+4], bytes[offset+5], bytes[offset+6], bytes[offset+7]);
+        let headerSize = 8;
+        if(size === 1 && offset + 16 <= end){
+          // 64-bit extended size, split across two 32-bit words.
+          const high = view.getUint32(offset+8), low = view.getUint32(offset+12);
+          size = high * 4294967296 + low;
+          headerSize = 16;
+        } else if(size === 0){
+          size = end - offset; // box runs to the end of its parent
+        }
+        if(size < headerSize) break; // corrupt/unrecognized data — stop rather than loop forever
+        boxes.push({ type, start: offset, headerSize, end: Math.min(offset + size, end) });
+        offset += size;
+      }
+      return boxes;
+    }
+    const findBox = (boxes, type) => boxes.find(b => b.type === type);
+
+    const moov = findBox(readBoxes(0, bytes.length), 'moov');
+    if(!moov) return null;
+    const moovChildren = readBoxes(moov.start + moov.headerSize, moov.end);
+
+    // Classic QuickTime location atom (iPhone .mov files).
+    const udta = findBox(moovChildren, 'udta');
+    let xyz = udta ? findBox(readBoxes(udta.start + udta.headerSize, udta.end), '\u00A9xyz') : null;
+
+    // iTunes-style fallback: moov/meta is a "full box" (4 extra bytes of
+    // version+flags before its children start), then meta/ilst/©xyz.
+    if(!xyz){
+      const meta = findBox(moovChildren, 'meta');
+      if(meta){
+        const ilst = findBox(readBoxes(meta.start + meta.headerSize + 4, meta.end), 'ilst');
+        if(ilst) xyz = findBox(readBoxes(ilst.start + ilst.headerSize, ilst.end), '\u00A9xyz');
+      }
+    }
+    if(!xyz) return null;
+
+    const start = xyz.start + xyz.headerSize, end = xyz.end;
+    if(end - start < 4) return null;
+
+    let text = null;
+    // iTunes-style: a nested 'data' atom holds the text after an 8-byte header.
+    const dataBox = findBox(readBoxes(start, end), 'data');
+    if(dataBox && dataBox.start + dataBox.headerSize + 8 < dataBox.end){
+      text = new TextDecoder('utf-8').decode(bytes.slice(dataBox.start + dataBox.headerSize + 8, dataBox.end));
+    }
+    // Classic QuickTime text atom: [2-byte length][2-byte language][UTF-8 text].
+    if(!text){
+      const strLen = view.getUint16(start);
+      if(strLen > 0 && start + 4 + strLen <= end){
+        text = new TextDecoder('utf-8').decode(bytes.slice(start + 4, start + 4 + strLen));
+      }
+    }
+    if(!text) text = new TextDecoder('utf-8').decode(bytes.slice(start, end));
+
+    // ISO-6709 e.g. "+37.3230-122.0322+061.000/" — signed lat then signed lng.
+    const m = text.match(/([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)/);
+    if(!m) return null;
+    const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+    if(Number.isNaN(lat) || Number.isNaN(lng)) return null;
+    return { lat, lng };
+  }catch(e){
+    console.warn('Video GPS atom read failed for', file.name, e);
+    return null;
+  }
+}
+
+/* exifr reads GPS lat/lng + compass heading directly from the original file.
+   Works on JPEG, TIFF, and HEIC/HEIF (iPhone photos) alike. */
+async function readGpsAndHeading(file){
+  if(isVideo(file)){
+    // Videos essentially never carry a compass heading tag, only location —
+    // exifr can't parse MP4/MOV containers at all, so this bypasses it entirely.
+    const gps = await readVideoGps(file);
+    return { lat: gps ? gps.lat : null, lng: gps ? gps.lng : null, dir: null };
+  }
+  if(isAudio(file)) return { lat: null, lng: null, dir: null };
+  let lat = null, lng = null, dir = null;
+  try{
+    const gps = await exifr.gps(file);
+    if(gps){ lat = gps.latitude; lng = gps.longitude; }
+  }catch(e){ console.warn('exifr GPS read failed for', file.name, e); }
+  try{
+    const tags = await exifr.parse(file, ['GPSImgDirection','GPSTrack']);
+    if(tags){
+      dir = tags.GPSImgDirection != null ? tags.GPSImgDirection
+          : (tags.GPSTrack != null ? tags.GPSTrack : null);
+    }
+  }catch(e){ console.warn('exifr heading read failed for', file.name, e); }
+  return { lat, lng, dir };
+}
+
+let pendingFile = null;
+let pickingOnMap = false;
+let manualQueue = []; // photos awaiting manual placement, processed one at a time
+
+function handleFiles(fileList){
+  const files = Array.from(fileList).filter(f => f.type.startsWith('image/') || isHeic(f) || isVideo(f) || isAudio(f));
+  files.forEach(file => processFile(file));
+  fileInput.value = '';
+}
+
+/* Adds a finished photo/video/audio record to the log, map and list, links it to
+   nearby sketch points, and saves. Shared by uploads, manual placement and field capture. */
+function addPhotoRecord(p, {pan = true} = {}){
+  allPhotos.push(p);
+  renumberPhotos();
+  computeLinks(p);
+  addMarker(p);
+  rebuildList();
+  drawLinkLines();
+  renderLinkedMediaPanel();
+  savePersisted();
+  scheduleTitleUpdate();
+  if(pan) map.setView([p.lat, p.lng], Math.max(map.getZoom(), 17));
+  return p;
+}
+
+async function processFile(file){
+  try{
+    const audio = isAudio(file);
+    const video = !audio && isVideo(file);
+
+    // 1. Pull GPS + heading from the original file, if present. Videos carry
+    //    location metadata far less often than photos, so expect this to
+    //    come back empty for most clips — that's normal, not a bug.
+    const { lat, lng, dir } = await readGpsAndHeading(file);
+
+    let thumb, duration = null;
+
+    if(audio){
+      duration = await audioDuration(file);
+      thumb = audioThumb(null, duration);
+    } else if(video){
+      let frame;
+      try{
+        frame = await captureVideoFrame(file);
+      }catch(e){
+        console.error('Could not read video frame for', file.name, e);
+        alert(`Could not read "${file.name}" as a video. It won't be added.`);
+        return;
+      }
+      const frameImg = await loadImageEl(frame.frameDataUrl);
+      thumb = resizeToDataUrl(frameImg, 320, 0.75);
+      duration = frame.duration;
+    } else {
+      // HEIC/HEIF can't be drawn to a <canvas> or shown in an <img> directly —
+      // convert to JPEG just to build the small embedded thumbnail. The
+      // original HEIC file itself is never converted or copied anywhere.
+      let displaySource = file;
+      if(isHeic(file)){
+        try{
+          let converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.85 });
+          if(Array.isArray(converted)) converted = converted[0];
+          displaySource = converted;
+        }catch(e){
+          console.error('HEIC conversion failed for', file.name, e);
+          alert(`Could not generate a preview thumbnail for "${file.name}" (HEIC conversion failed). It won't be added.`);
+          return;
+        }
+      }
+      const dataUrl = await blobToDataUrl(displaySource);
+      const img = await loadImageEl(dataUrl);
+      thumb = resizeToDataUrl(img, 320, 0.75);
+    }
+
+    if(checkDuplicateFileName(file.name)){
+      alert(`Heads up: another item already references the filename "${file.name}". Since files are matched by name, please keep filenames unique or the wrong image/video may show after reopening.`);
+    }
+
+    // Full-size viewing works immediately via this in-memory blob URL (this
+    // session only). After saving + reopening, it instead loads from the
+    // filename reference below — which requires the original file to sit
+    // alongside the saved .html, unchanged.
+    const liveUrl = URL.createObjectURL(file);
+    const mediaType = audio ? 'audio' : video ? 'video' : 'photo';
+
+    // On a phone there is no folder of originals next to the saved file, so keep a
+    // copy in this browser's storage; it goes into the field pack (ZIP) export.
+    let stored = false;
+    if(IS_TOUCH){
+      try{ await FieldStore.putMedia(file.name, file); stored = true; }catch(e){ console.warn('Could not store media on device', e); }
+    }
+
+    if(lat != null && lng != null){
+      addPhotoRecord({
+        id: 'p_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+        thumb: thumb, fileName: file.name, _liveUrl: liveUrl,
+        lat: lat, lng: lng, dir: dir != null ? dir : 0,
+        dirSrc: dir != null ? 'exif' : 'none',
+        label: file.name.replace(/\.[^.]+$/,''),
+        source: 'exif',
+        comment: '',
+        color: '#2fc6b8', shape: audio ? 'square' : 'circle', fontSize: 11,
+        mediaType, duration, stored
+      });
+    } else {
+      queueManualPlacement({ file, thumb, fileName: file.name, liveUrl, mediaType, duration, extra: { stored } });
+    }
+  }catch(e){
+    console.error('Failed to process file', file.name, e);
+    alert(`Something went wrong reading "${file.name}". Check the console for details.`);
+  }
+}
+
+/* ---- manual placement flow for photos with no EXIF GPS ---- */
+const manualBox = document.getElementById('manualBox');
+const bearingSlider = document.getElementById('bearingSlider');
+const bearingVal = document.getElementById('bearingVal');
+const placeMsg = document.getElementById('placeMsg');
+const confirmBtn = document.getElementById('confirmManual');
+let manualLatLng = null;
+let manualMarkerPreview = null;
+
+function openManualBox(name){
+  document.getElementById('manualFileName').textContent = name;
+  manualBox.classList.add('show');
+  bearingSlider.value = 0;
+  bearingVal.textContent = '0°';
+  manualLatLng = null;
+  confirmBtn.disabled = true;
+  placeMsg.classList.remove('show');
+  updateManualQueueHint();
+}
+
+/* Photos with no EXIF GPS are placed one at a time. If several such photos are
+   uploaded together, they queue up here instead of clobbering each other. */
+function updateManualQueueHint(){
+  const hintEl = document.getElementById('manualQueueHint');
+  if(!hintEl) return;
+  hintEl.textContent = manualQueue.length > 0
+    ? `${manualQueue.length} more photo${manualQueue.length===1?'':'s'} waiting to be placed after this one.`
+    : '';
+}
+function queueManualPlacement(entry){
+  manualQueue.push(entry);
+  if(!pendingFile){
+    advanceManualQueue();
+  } else {
+    updateManualQueueHint();
+  }
+}
+function advanceManualQueue(){
+  if(manualQueue.length === 0){
+    pendingFile = null;
+    manualBox.classList.remove('show');
+    return;
+  }
+  pendingFile = manualQueue.shift();
+  openManualBox(pendingFile.file.name);
+  const ex = pendingFile.extra || {};
+  if(ex.dir != null){ bearingSlider.value = Math.round(ex.dir) % 360; bearingVal.textContent = bearingSlider.value + '°'; }
+  document.getElementById('useGpsBtn').style.display = fieldLastFix() ? '' : 'none';
+  if(ex.reason) document.getElementById('manualQueueHint').textContent = ex.reason + (manualQueue.length ? ` (${manualQueue.length} more waiting)` : '');
+}
+document.getElementById('useGpsBtn').onclick = ()=>{
+  const fix = fieldLastFix();
+  if(!fix){ alert('No GPS position yet. Start field mode and wait for a fix.'); return; }
+  manualLatLng = L.latLng(fix.lat, fix.lng);
+  if(manualMarkerPreview) map.removeLayer(manualMarkerPreview);
+  manualMarkerPreview = L.marker(manualLatLng, { icon: arrowIcon(+bearingSlider.value, '#f2668b') }).addTo(map);
+  if(pendingFile) pendingFile.extra = Object.assign({}, pendingFile.extra, { gpsAcc: fix.acc });
+  map.setView(manualLatLng, Math.max(map.getZoom(), 18));
+  confirmBtn.disabled = false;
+};
+document.getElementById('cancelManual').onclick = ()=>{
+  pickingOnMap = false;
+  if(manualMarkerPreview){ map.removeLayer(manualMarkerPreview); manualMarkerPreview = null; }
+  map.getContainer().style.cursor = '';
+  advanceManualQueue();
+};
+bearingSlider.oninput = ()=>{
+  bearingVal.textContent = bearingSlider.value + '°';
+  if(manualMarkerPreview) manualMarkerPreview.setIcon(arrowIcon(+bearingSlider.value, '#f2668b'));
+};
+document.getElementById('pickOnMapBtn').onclick = ()=>{
+  pickingOnMap = true;
+  placeMsg.classList.add('show');
+  map.getContainer().style.cursor = 'crosshair';
+};
+map.on('click', function(e){
+  if(!pickingOnMap) return;
+  manualLatLng = e.latlng;
+  if(manualMarkerPreview) map.removeLayer(manualMarkerPreview);
+  manualMarkerPreview = L.marker(e.latlng, { icon: arrowIcon(+bearingSlider.value, '#f2668b') }).addTo(map);
+  confirmBtn.disabled = false;
+  pickingOnMap = false;
+  map.getContainer().style.cursor = '';
+});
+confirmBtn.onclick = ()=>{
+  if(!pendingFile || !manualLatLng) return;
+  const ex = Object.assign({}, pendingFile.extra || {});
+  delete ex.reason; delete ex.dir;
+  const p = Object.assign({
+    id: 'p_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    thumb: pendingFile.thumb, fileName: pendingFile.fileName, _liveUrl: pendingFile.liveUrl,
+    lat: manualLatLng.lat, lng: manualLatLng.lng, dir: +bearingSlider.value, dirSrc: 'manual',
+    label: pendingFile.file.name.replace(/\.[^.]+$/,''),
+    source: 'manual',
+    comment: '',
+    color: '#f2668b', shape: pendingFile.mediaType === 'audio' ? 'square' : 'circle', fontSize: 11,
+    mediaType: pendingFile.mediaType || 'photo',
+    duration: pendingFile.duration || null
+  }, ex);
+  if(manualMarkerPreview){ map.removeLayer(manualMarkerPreview); manualMarkerPreview = null; }
+  addPhotoRecord(p, {pan: false});
+  advanceManualQueue();
+};
+
+/* =====================================================================================
+   FIELD CAPTURE — open this page on a phone, then take photos, videos and audio notes
+   that are pinned at the phone's live GPS position, pointed with its compass, and
+   linked to any sketch point within a set distance (15 m by default).
+
+   - Live GPS: navigator.geolocation.watchPosition (high accuracy)
+   - Compass: deviceorientationabsolute (Android) / webkitCompassHeading (iPhone)
+   - In-app camera + recorder: getUserMedia + MediaRecorder, so the position and
+     heading are captured at the exact moment of the shot
+   - "Phone camera app" buttons: <input capture> fallback (full resolution)
+   - Media is kept on the phone in IndexedDB (survives reloads) and exported as a
+     ZIP "field pack" together with the saved site-walk .html.
+   Browsers only allow camera, microphone and GPS on https:// pages (or localhost).
+   ===================================================================================== */
+const byId = id => document.getElementById(id);
+const IS_TOUCH = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+if(IS_TOUCH) document.body.classList.add('touch');
+
+/* ---------- on-device storage (IndexedDB): media blobs + autosaved walk state ---------- */
+const FieldStore = (() => {
+  let dbp = null;
+  function open(){
+    if(dbp) return dbp;
+    dbp = new Promise((res, rej) => {
+      if(!window.indexedDB){ rej(new Error('IndexedDB not available')); return; }
+      const r = indexedDB.open('siteWalkFieldCapture', 1);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        if(!d.objectStoreNames.contains('media')) d.createObjectStore('media');
+        if(!d.objectStoreNames.contains('state')) d.createObjectStore('state');
+      };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error || new Error('IndexedDB open failed'));
+    });
+    dbp.catch(() => { dbp = null; });
+    return dbp;
+  }
+  function run(store, mode, fn){
+    return open().then(d => new Promise((res, rej) => {
+      const t = d.transaction(store, mode);
+      const req = fn(t.objectStore(store));
+      t.oncomplete = () => res(req ? req.result : undefined);
+      t.onerror = () => rej(t.error);
+      t.onabort = () => rej(t.error || new Error('transaction aborted'));
+    }));
+  }
+  return {
+    putMedia: (k, blob) => run('media', 'readwrite', s => s.put(blob, k)),
+    getMedia: k => run('media', 'readonly', s => s.get(k)),
+    delMedia: k => run('media', 'readwrite', s => s.delete(k)),
+    hasMedia: k => run('media', 'readonly', s => s.count(k)).then(n => n > 0),
+    putState: (k, v) => run('state', 'readwrite', s => s.put(v, k)),
+    getState: k => run('state', 'readonly', s => s.get(k)),
+    clearAll: () => run('media', 'readwrite', s => s.clear()).then(() => run('state', 'readwrite', s => s.clear()))
+  };
+})();
+
+function hashStr(s){
+  let h = 2166136261 >>> 0;
+  for(let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h.toString(36);
+}
+// One autosave slot per page + embedded data, so different saved walks don't overwrite each other.
+const EMBED_SIG = '|' + (byId('embeddedPhotoData').textContent || '') + '|' + (byId('embeddedSketchData').textContent || '');
+// ".../sitewalk/" and ".../sitewalk/index.html" are the same page, so they share one slot
+const SESSION_KEY = 'walk:' + hashStr(location.pathname.replace(/index\.html?$/i, '') + EMBED_SIG);
+const LEGACY_SESSION_KEY = 'walk:' + hashStr(location.pathname + EMBED_SIG);   // key used by earlier versions
+let deviceReady = false;          // no autosave until the stored session (if any) has been restored
+let deviceSaveTimer = null;
+let deviceSaveWarned = false;
+function scheduleDeviceSave(){
+  if(!deviceReady) return;
+  clearTimeout(deviceSaveTimer);
+  deviceSaveTimer = setTimeout(saveDeviceState, 500);
+}
+// Write pending changes at once when the page is hidden (app switched away, screen off, closed).
+function flushDeviceSave(){
+  if(deviceReady && deviceSaveTimer){ clearTimeout(deviceSaveTimer); deviceSaveTimer = null; saveDeviceState(); }
+}
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') flushDeviceSave(); });
+window.addEventListener('pagehide', flushDeviceSave);
+async function saveDeviceState(){
+  try{
+    await FieldStore.putState(SESSION_KEY, {
+      photos: cleanPhotosForSave(),
+      sketch: window.sketchAPI ? window.sketchAPI.toFC() : null,
+      saved: Date.now()
+    });
+  }catch(e){
+    if(!deviceSaveWarned){ deviceSaveWarned = true; console.warn('Could not autosave to this device', e); }
+  }
+}
+async function rehydrateStoredMedia(){
+  for(const p of allPhotos){
+    if(p.stored && p.fileName && !p._liveUrl){
+      try{ const b = await FieldStore.getMedia(p.fileName); if(b) p._liveUrl = URL.createObjectURL(b); }catch(e){}
+    }
+  }
+}
+
+/* ---------- small helpers ---------- */
+function mapToast(msg, ms = 3500){
+  let t = byId('mapToast');
+  if(!t){
+    t = document.createElement('div');
+    t.id = 'mapToast';
+    t.style.cssText = 'position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:1200;background:rgba(15,42,38,.95);color:#eef2f0;border:1px solid #2fc6b8;border-radius:8px;padding:8px 14px;font:12.5px/1.4 Inter,Arial,sans-serif;max-width:86%;text-align:center;pointer-events:none;transition:opacity .3s;';
+    map.getContainer().parentElement.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._h);
+  t._h = setTimeout(() => { t.style.opacity = '0'; }, ms);
+}
+function downloadBlob(blob, name){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+function loadScriptOnce(src){
+  loadScriptOnce.cache = loadScriptOnce.cache || {};
+  if(!loadScriptOnce.cache[src]){
+    loadScriptOnce.cache[src] = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src; s.onload = res; s.onerror = () => { delete loadScriptOnce.cache[src]; rej(new Error('Could not load ' + src)); };
+      document.head.appendChild(s);
+    });
+  }
+  return loadScriptOnce.cache[src];
+}
+function isMobileLayout(){ return window.innerWidth <= 820; }
+function closePanelOnMobile(){ if(isMobileLayout()) document.querySelector('.shell').classList.remove('panelOpen'); }
+
+/* ---------- linking media to sketch points ---------- */
+const LINK = (() => {
+  let s = {};
+  try{ s = JSON.parse(localStorage.getItem('siteWalkLinkSettings') || '{}'); }catch(e){}
+  return { radius: s.radius > 0 ? s.radius : 15, shapes: !!s.shapes, lines: s.lines !== false };
+})();
+function saveLinkSettings(){ try{ localStorage.setItem('siteWalkLinkSettings', JSON.stringify(LINK)); }catch(e){} }
+function applyLinkSettings(s){
+  if(!s) return;
+  if(s.radius > 0) LINK.radius = +s.radius;
+  if(typeof s.shapes === 'boolean') LINK.shapes = s.shapes;
+  if(typeof s.lines === 'boolean') LINK.lines = s.lines;
+  saveLinkSettings();
+  const r = byId('linkRadius'); if(r){ r.value = LINK.radius; byId('linkShapes').checked = LINK.shapes; byId('linkLines').checked = LINK.lines; }
+}
+
+const R_EARTH = 6371008.8;
+function distM(a, b){
+  const k = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * k, dLng = (b.lng - a.lng) * k;
+  const h = Math.sin(dLat/2) ** 2 + Math.cos(a.lat*k) * Math.cos(b.lat*k) * Math.sin(dLng/2) ** 2;
+  return 2 * R_EARTH * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+// Local flat projection (metres) around an origin — accurate to well under 1% at site scale.
+function toXY(lat0, lng0, lat, lng){
+  const k = Math.PI / 180;
+  return [(lng - lng0) * k * R_EARTH * Math.cos(lat0 * k), (lat - lat0) * k * R_EARTH];
+}
+function fromXY(lat0, lng0, x, y){
+  const k = Math.PI / 180;
+  return [lat0 + y / (R_EARTH * k), lng0 + x / (R_EARTH * k * Math.cos(lat0 * k))];
+}
+function insideRing(xy){
+  let inside = false;
+  for(let i = 0, j = xy.length - 1; i < xy.length; j = i++){
+    const [xi, yi] = xy[i], [xj, yj] = xy[j];
+    if(((yi > 0) !== (yj > 0)) && (0 < (xj - xi) * (0 - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+/* Distance (m) from a photo position to a sketch shape, plus the nearest point on it. */
+function targetDistance(p, t){
+  const l = t.layer;
+  if(t.kind === 'Point'){
+    const ll = l.getLatLng();
+    return { d: distM(p, ll), at: [ll.lat, ll.lng] };
+  }
+  if(t.kind === 'Circle'){
+    const c = l.getLatLng(), r = l.getRadius(), dc = distM(p, c);
+    if(dc <= r) return { d: 0, at: [p.lat, p.lng] };
+    const f = r / dc;
+    return { d: dc - r, at: [c.lat + (p.lat - c.lat) * f, c.lng + (p.lng - c.lng) * f] };
+  }
+  let pts = l.getLatLngs();
+  while(pts.length && Array.isArray(pts[0])) pts = pts[0];
+  if(!pts.length) return null;
+  const xy = pts.map(ll => toXY(p.lat, p.lng, ll.lat, ll.lng));
+  const closed = t.kind === 'Polygon';
+  if(closed && xy.length > 2 && insideRing(xy)) return { d: 0, at: [p.lat, p.lng] };
+  let best = { d: Math.hypot(xy[0][0], xy[0][1]), x: xy[0][0], y: xy[0][1] };
+  const n = xy.length, segs = closed ? n : n - 1;
+  for(let i = 0; i < segs; i++){
+    const [ax, ay] = xy[i], [bx, by] = xy[(i + 1) % n];
+    const dx = bx - ax, dy = by - ay, len2 = dx*dx + dy*dy;
+    const tt = len2 ? Math.max(0, Math.min(1, -(ax*dx + ay*dy) / len2)) : 0;
+    const x = ax + tt*dx, y = ay + tt*dy, d = Math.hypot(x, y);
+    if(d < best.d) best = { d, x, y };
+  }
+  return { d: best.d, at: fromXY(p.lat, p.lng, best.x, best.y) };
+}
+function nearbyTargets(pos, targets){
+  if(!window.sketchAPI) return [];
+  targets = targets || window.sketchAPI.linkTargets(LINK.shapes);
+  const out = [];
+  targets.forEach(t => {
+    const r = targetDistance(pos, t);
+    if(r && r.d <= LINK.radius) out.push({ uid: t.uid, name: t.name, kind: t.kind, d: Math.round(r.d * 10) / 10, at: r.at.map(v => +v.toFixed(7)) });
+  });
+  return out.sort((a, b) => a.d - b.d);
+}
+function computeLinks(p, targets){
+  if(!window.sketchAPI) return;          // sketch not ready yet: keep the saved links
+  p.links = nearbyTargets(p, targets);
+}
+function linkName(l){
+  const live = window.sketchAPI && window.sketchAPI.byUid(l.uid);
+  return live ? live.meta.name : (l.name || 'sketch shape');
+}
+function linksHtml(p, clickable){
+  const ls = p.links || [];
+  if(!ls.length) return clickable ? `<span style="opacity:.6">Not linked to any sketch point within ${LINK.radius} m</span>` : '';
+  return '🔗 ' + ls.map(l => clickable
+    ? `<a onclick="focusSketch('${l.uid}')">${escapeHtml(linkName(l))}</a> (${l.d.toFixed(1)} m)`
+    : `${escapeHtml(linkName(l))} (${Math.round(l.d)} m)`).join(', ');
+}
+function focusSketch(uid){
+  map.closePopup();
+  closeLightbox();
+  closePanelOnMobile();
+  if(!window.sketchAPI || !window.sketchAPI.focus(uid)) alert('That sketch shape no longer exists.');
+}
+function linkedMediaFor(uid){
+  const out = [];
+  allPhotos.forEach(p => (p.links || []).forEach(l => { if(l.uid === uid) out.push({ p, d: l.d }); }));
+  return out;
+}
+const linkLayer = L.layerGroup().addTo(map);
+function drawLinkLines(){
+  linkLayer.clearLayers();
+  if(!LINK.lines) return;
+  allPhotos.forEach(p => (p.links || []).forEach(l => {
+    if(!l.at) return;
+    L.polyline([[p.lat, p.lng], l.at], { color: '#f5a300', weight: 2, opacity: .9, dashArray: '4 5', interactive: false }).addTo(linkLayer);
+  }));
+}
+function renderLinkedMediaPanel(){
+  const wrap = byId('linkedWrap');
+  if(!wrap) return;
+  const s = window.sketchAPI && window.sketchAPI.selected();
+  if(!s){ wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const list = linkedMediaFor(s.uid).sort((a, b) => a.d - b.d);
+  byId('linkedCount').textContent = `(${list.length})`;
+  const box = byId('linkedMedia');
+  box.innerHTML = list.length
+    ? list.map(x => `<div class="lm" data-id="${x.p.id}" title="#${x.p.num} ${escapeHtml(x.p.label)}"><img src="${thumbSrc(x.p)}" alt=""><span class="lmNum">${x.p.num}</span><span class="lmD">${Math.round(x.d)} m</span></div>`).join('')
+    : `<div class="hint" style="margin:0;grid-column:1/-1">Nothing within ${LINK.radius} m yet.</div>`;
+  box.querySelectorAll('.lm').forEach(el => el.onclick = () => openLightbox(el.dataset.id));
+}
+let lastSketchSig = null, relinkTimer = null;
+function sketchSignature(){
+  if(!window.sketchAPI) return '';
+  return LINK.radius + '|' + LINK.shapes + '|' + window.sketchAPI.linkTargets(true).map(t => {
+    const l = t.layer;
+    const g = l.getLatLngs ? l.getLatLngs() : [l.getLatLng(), l.getRadius ? l.getRadius() : 0];
+    return t.uid + ':' + t.name + ':' + JSON.stringify(g);
+  }).join(';');
+}
+function onSketchChanged(){            // called by the sketch tool after every change
+  scheduleDeviceSave();
+  renderLinkedMediaPanel();
+  const sig = sketchSignature();
+  if(sig !== lastSketchSig){ lastSketchSig = sig; relinkSoon(); }
+}
+function relinkSoon(){ clearTimeout(relinkTimer); relinkTimer = setTimeout(relinkAll, 150); }
+function relinkAll(){
+  if(!window.sketchAPI) return;
+  const targets = window.sketchAPI.linkTargets(LINK.shapes);
+  allPhotos.forEach(p => computeLinks(p, targets));
+  allPhotos.forEach(p => updatePhotoUI(p.id));
+  drawLinkLines();
+  renderLinkedMediaPanel();
+  window.sketchAPI.refresh();             // refresh 📎 counts in the shapes list
+  if(lightboxOpenId){
+    const p = allPhotos.find(x => x.id === lightboxOpenId);
+    if(p) byId('lbLinks').innerHTML = linksHtml(p, true);
+  }
+  updateNearby();
+  savePersisted();
+}
+
+/* ---------- live GPS + compass ---------- */
+const field = {
+  on: false, watchId: null, fix: null, gpsError: null, waiters: [],
+  heading: null, headingTs: 0, hx: 0, hy: 0, orientHandler: null, compassDenied: false,
+  wakeLock: null, follow: false, meMarker: null, accCircle: null, tick: null, uiQueued: false,
+  nativeFix: null, nativeHead: null
+};
+function fieldLastFix(maxAgeMs = 30000){
+  return field.fix && (Date.now() - field.fix.ts) <= maxAgeMs ? field.fix : null;
+}
+function fieldHeadingAvailable(){
+  return field.heading != null && Date.now() - field.headingTs < 5000;
+}
+function currentHeading(){
+  if(fieldHeadingAvailable()) return { dir: Math.round(field.heading * 10) / 10, src: 'compass' };
+  const f = fieldLastFix(10000);
+  if(f && f.course != null && !isNaN(f.course) && f.speed > 0.8) return { dir: f.course, src: 'gps-course' };
+  return null;
+}
+function waitForFix(ms){
+  const f = fieldLastFix(15000);
+  if(f) return Promise.resolve(f);
+  return new Promise(res => {
+    const w = { res, t: setTimeout(() => { field.waiters = field.waiters.filter(x => x !== w); res(null); }, ms) };
+    field.waiters.push(w);
+  });
+}
+
+/* Compass heading of the BACK camera (direction the phone is pointing) from Euler angles.
+   Uses the W3C formula when the phone is held up; falls back to the top edge when flat. */
+function headingFromEuler(alpha, beta, gamma){
+  const r = Math.PI / 180;
+  const cX = Math.cos(beta * r), cY = Math.cos(gamma * r), cZ = Math.cos(alpha * r);
+  const sX = Math.sin(beta * r), sY = Math.sin(gamma * r), sZ = Math.sin(alpha * r);
+  const Vx = -cZ * sY - sZ * sX * cY;
+  const Vy = -sZ * sY + cZ * sX * cY;
+  if(Math.hypot(Vx, Vy) > 0.5) return (Math.atan2(Vx, Vy) * 180 / Math.PI + 360) % 360;
+  const angle = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+  return (360 - alpha + angle + 360) % 360;
+}
+function smoothHeading(deg){
+  const r = deg * Math.PI / 180;
+  if(Date.now() - field.headingTs > 1000){ field.hx = Math.sin(r); field.hy = Math.cos(r); }
+  else { field.hx = 0.75 * field.hx + 0.25 * Math.sin(r); field.hy = 0.75 * field.hy + 0.25 * Math.cos(r); }
+  field.heading = (Math.atan2(field.hx, field.hy) * 180 / Math.PI + 360) % 360;
+  field.headingTs = Date.now();
+  queueFieldUI();
+}
+// Must be started from a tap: iPhone only shows its motion-permission prompt during a user gesture.
+function enableCompass(){
+  if(field.orientHandler) return Promise.resolve();
+  if(typeof DeviceOrientationEvent === 'undefined') return Promise.resolve();
+  const h = e => {
+    let deg = null;
+    if(typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) deg = e.webkitCompassHeading;
+    else if((e.absolute || e.type === 'deviceorientationabsolute') && e.alpha != null) deg = headingFromEuler(e.alpha, e.beta || 0, e.gamma || 0);
+    if(deg == null) return;
+    field.compassDenied = false;          // readings are arriving, whatever the permission call said
+    smoothHeading(deg);
+  };
+  field.orientHandler = h;
+  field.orientEvent = ('ondeviceorientationabsolute' in window) ? 'deviceorientationabsolute' : 'deviceorientation';
+  window.addEventListener(field.orientEvent, h);
+  if(typeof DeviceOrientationEvent.requestPermission === 'function'){
+    return DeviceOrientationEvent.requestPermission()
+      .then(r => { if(r !== 'granted' && !fieldHeadingAvailable()) field.compassDenied = true; })
+      .catch(() => { if(!fieldHeadingAvailable()) field.compassDenied = true; });
+  }
+  return Promise.resolve();
+}
+function enableGps(){
+  if(field.watchId != null) return;
+  if(!('geolocation' in navigator)){ field.gpsError = 'no GPS access in this browser'; return; }
+  field.watchId = navigator.geolocation.watchPosition(pos => {
+    const c = pos.coords;
+    field.fix = { lat: c.latitude, lng: c.longitude, acc: c.accuracy, alt: c.altitude,
+                  course: c.heading, speed: c.speed, ts: Date.now() };
+    field.gpsError = null;
+    const ws = field.waiters; field.waiters = [];
+    ws.forEach(w => { clearTimeout(w.t); w.res(field.fix); });
+    updateMeMarker();
+    queueFieldUI();
+  }, err => {
+    field.gpsError = err.code === 1 ? 'location permission denied' : (err.code === 3 ? 'still searching…' : (err.message || 'GPS error'));
+    queueFieldUI();
+  }, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+}
+async function requestWakeLock(){
+  try{ if(window.AndroidBridge && field.on) window.AndroidBridge.keepScreenOn(true); }catch(e){}
+  try{ if('wakeLock' in navigator && field.on) field.wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+}
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible' && field.on) requestWakeLock();
+});
+function startField(){
+  showSecureWarning();
+  const compassReady = enableCompass();     // called synchronously inside the tap
+  if(field.on) return compassReady;
+  field.on = true;
+  enableGps();
+  requestWakeLock();
+  try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
+  document.body.classList.add('fieldOn');
+  clearInterval(field.tick);
+  field.tick = setInterval(queueFieldUI, 1000);
+  queueFieldUI();
+  return compassReady;
+}
+function stopField(){
+  try{ if(window.AndroidBridge) window.AndroidBridge.keepScreenOn(false); }catch(e){}
+  if(field.watchId != null) navigator.geolocation.clearWatch(field.watchId);
+  field.watchId = null;
+  if(field.orientHandler) window.removeEventListener(field.orientEvent, field.orientHandler);
+  field.orientHandler = null; field.heading = null;
+  try{ if(field.wakeLock) field.wakeLock.release(); }catch(e){}
+  field.wakeLock = null;
+  field.on = false; field.follow = false;
+  clearInterval(field.tick);
+  if(field.meMarker){ map.removeLayer(field.meMarker); field.meMarker = null; }
+  if(field.accCircle){ map.removeLayer(field.accCircle); field.accCircle = null; }
+  document.body.classList.remove('fieldOn');
+  queueFieldUI();
+}
+function meIconHtml(){
+  const h = currentHeading();
+  return `<div class="meWrap"><svg class="cone" viewBox="0 0 60 60" style="transform:rotate(${h ? h.dir : 0}deg);display:${h ? 'block' : 'none'}"><path d="M30 30 L17 3 A29 29 0 0 1 43 3 Z" fill="rgba(30,111,217,.38)"/></svg><div class="meDot"></div></div>`;
+}
+function updateMeMarker(){
+  const f = field.fix;
+  if(!f || !field.on) return;
+  const ll = [f.lat, f.lng];
+  if(!field.accCircle){
+    field.accCircle = L.circle(ll, { radius: f.acc || 0, color: '#1e6fd9', weight: 1, opacity: .5, fillColor: '#1e6fd9', fillOpacity: .1, interactive: false }).addTo(map);
+    // drawn beneath the photo pins so it never hides them
+    field.meMarker = L.marker(ll, { icon: L.divIcon({ html: meIconHtml(), className: '', iconSize: [60, 60], iconAnchor: [30, 30] }), interactive: false, keyboard: false, zIndexOffset: -1000 }).addTo(map);
+  } else {
+    field.accCircle.setLatLng(ll).setRadius(f.acc || 0);
+    field.meMarker.setLatLng(ll);
+  }
+  if(field.follow) map.panTo(ll, { animate: true });
+}
+function updateMeHeading(){
+  const el = field.meMarker && field.meMarker.getElement();
+  const cone = el && el.querySelector('.cone');
+  if(!cone) return;
+  const h = currentHeading();
+  cone.style.display = h ? 'block' : 'none';
+  if(h) cone.style.transform = `rotate(${h.dir}deg)`;
+}
+map.on('dragstart', () => { if(field.follow){ field.follow = false; queueFieldUI(); } });
+
+function queueFieldUI(){
+  if(field.uiQueued) return;
+  field.uiQueued = true;
+  requestAnimationFrame(() => { field.uiQueued = false; updateFieldUI(); });
+}
+function gpsClass(f){ return !f ? 'bad' : f.acc <= 8 ? 'good' : f.acc <= 20 ? 'ok' : 'bad'; }
+function updateFieldUI(){
+  const f = fieldLastFix(30000);
+  let gpsTxt, gpsCls;
+  if(!field.on){ gpsTxt = 'off'; gpsCls = ''; }
+  else if(f){ gpsTxt = `±${Math.round(f.acc)} m · ${Math.round((Date.now() - f.ts) / 1000)} s ago`; gpsCls = gpsClass(f); }
+  else if(field.gpsError){ gpsTxt = field.gpsError; gpsCls = 'bad'; }
+  else { gpsTxt = 'searching…'; gpsCls = 'ok'; }
+  byId('fsGps').innerHTML = `<span class="dot ${gpsCls}"></span>${gpsTxt}`;
+  const h = currentHeading();
+  let hTxt, hCls;
+  if(!field.on){ hTxt = 'off'; hCls = ''; }
+  else if(field.compassDenied){ hTxt = 'motion permission denied'; hCls = 'bad'; }
+  else if(h){ hTxt = fmtDir(h.dir) + (h.src === 'gps-course' ? ' (from walking direction)' : ''); hCls = 'good'; }
+  else { hTxt = IS_TOUCH ? 'waiting…' : 'not available on this device'; hCls = 'ok'; }
+  byId('fsHead').innerHTML = `<span class="dot ${hCls}"></span>${hTxt}`;
+  byId('fieldToggleBtn').textContent = field.on ? 'Stop field mode' : 'Start field mode';
+  byId('fabLocate').classList.toggle('on', field.follow);
+  updateMeHeading();
+  updateNearby();
+  if(byId('cam').classList.contains('show')) updateCamStatus();
+}
+function nearbyText(){
+  const f = fieldLastFix(30000);
+  if(!f) return null;
+  const near = nearbyTargets(f);
+  return near.length ? near.map(n => `${linkName(n)} (${Math.round(n.d)} m)`).join(', ') : '';
+}
+function updateNearby(){
+  const t = field.on ? nearbyText() : null;
+  byId('fsNear').textContent = t === null ? '—' : (t || `no sketch point within ${LINK.radius} m`);
+}
+function showSecureWarning(){
+  const w = byId('secureWarn');
+  if(window.isSecureContext){ w.classList.remove('show'); return; }
+  w.innerHTML = `<b>Camera, microphone and GPS are blocked here</b> because this page isn't opened from a secure <b>https://</b> address. Put this .html file on any https web host (for example GitHub Pages or Netlify Drop) and open that link on your phone. Until then the "Phone camera app" buttons still work, but each item has to be placed on the map by hand.`;
+  w.classList.add('show');
+}
+
+/* ---------- media helpers: names, thumbnails, durations, EXIF ---------- */
+function stampName(prefix, ext){
+  const d = new Date(), p2 = n => String(n).padStart(2, '0');
+  const base = `${prefix}_${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+  let name = `${base}.${ext}`, i = 2;
+  while(allPhotos.some(p => p.fileName === name)) name = `${base}_${i++}.${ext}`;
+  return name;
+}
+function extFor(type, audio){
+  type = (type || '').toLowerCase();
+  if(type.includes('mp4') || type.includes('aac') || type.includes('m4a')) return audio ? 'm4a' : 'mp4';
+  if(type.includes('quicktime')) return 'mov';
+  if(type.includes('ogg')) return 'ogg';
+  if(type.includes('jpeg')) return 'jpg';
+  return 'webm';
+}
+function audioThumb(levels, duration){
+  const c = document.createElement('canvas');
+  c.width = 320; c.height = 200;
+  const g = c.getContext('2d');
+  g.fillStyle = '#123330'; g.fillRect(0, 0, 320, 200);
+  const n = 40;
+  let lv = (levels && levels.length) ? levels : Array.from({ length: n }, (_, i) => 0.25 + 0.2 * Math.abs(Math.sin(i * 0.7)) + 0.15 * Math.abs(Math.sin(i * 2.3)));
+  if(lv.length > n){ const step = lv.length / n; lv = Array.from({ length: n }, (_, i) => Math.max(...lv.slice(Math.floor(i * step), Math.floor((i + 1) * step)) || [0])); }
+  const bw = 300 / n;
+  g.fillStyle = '#f5a300';
+  lv.forEach((v, i) => {
+    const h = Math.max(4, Math.min(1, v) * 110);
+    g.fillRect(10 + i * bw + 1, 95 - h / 2, Math.max(2, bw - 3), h);
+  });
+  g.fillStyle = '#eef2f0';
+  g.font = 'bold 22px Arial, sans-serif';
+  g.fillText('AUDIO NOTE', 14, 180);
+  g.font = 'bold 20px monospace';
+  g.textAlign = 'right';
+  g.fillText(fmtDuration(duration) || '', 306, 180);
+  return c.toDataURL('image/jpeg', 0.8);
+}
+function genericVideoThumb(){
+  const c = document.createElement('canvas');
+  c.width = 320; c.height = 200;
+  const g = c.getContext('2d');
+  g.fillStyle = '#123330'; g.fillRect(0, 0, 320, 200);
+  g.fillStyle = '#2fc6b8'; g.beginPath(); g.moveTo(135, 70); g.lineTo(195, 100); g.lineTo(135, 130); g.closePath(); g.fill();
+  return c.toDataURL('image/jpeg', 0.8);
+}
+function withTimeout(promise, ms){
+  return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+}
+function audioDuration(blob){
+  return withTimeout(new Promise(res => {
+    const url = URL.createObjectURL(blob);
+    const a = new Audio();
+    a.preload = 'metadata';
+    a.onloadedmetadata = () => { URL.revokeObjectURL(url); res(isFinite(a.duration) ? a.duration : null); };
+    a.onerror = () => { URL.revokeObjectURL(url); res(null); };
+    a.src = url;
+  }), 5000).catch(() => null);
+}
+async function makeThumb(blob, mediaType, duration){
+  if(mediaType === 'audio') return audioThumb(null, duration);
+  if(mediaType === 'video'){
+    try{
+      const fr = await withTimeout(captureVideoFrame(blob), 6000);
+      return resizeToDataUrl(await loadImageEl(fr.frameDataUrl), 320, 0.75);
+    }catch(e){ return genericVideoThumb(); }
+  }
+  let src = blob;
+  if(isHeic(blob)){
+    let conv = await heic2any({ blob, toType: 'image/jpeg', quality: 0.85 });
+    src = Array.isArray(conv) ? conv[0] : conv;
+  }
+  const url = URL.createObjectURL(src);
+  try{ return resizeToDataUrl(await loadImageEl(url), 320, 0.75); }
+  finally{ URL.revokeObjectURL(url); }
+}
+function grabPreviewThumb(){
+  const v = byId('camVideo');
+  if(!v.videoWidth) return null;
+  const s = Math.min(1, 320 / Math.max(v.videoWidth, v.videoHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.round(v.videoWidth * s); c.height = Math.round(v.videoHeight * s);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.75);
+}
+
+/* Builds a minimal EXIF block (date, GPS position, accuracy, compass direction) so the
+   JPEGs carry their location even outside this tool — e.g. dropped into GIS or the
+   photo upload box of this page on a PC. */
+function buildExifTiff(fix, head, when){
+  const SZ = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8 };
+  const ascii = s => { const a = Array.from(s, ch => ch.charCodeAt(0) & 0x7f); a.push(0); return a; };
+  const p2 = n => String(n).padStart(2, '0');
+  const dms = deg => {
+    deg = Math.abs(deg);
+    const d = Math.floor(deg), mf = (deg - d) * 60, m = Math.floor(mf), s = (mf - m) * 60;
+    return [[d, 1], [m, 1], [Math.round(s * 10000), 10000]];
+  };
+  const local = `${when.getFullYear()}:${p2(when.getMonth()+1)}:${p2(when.getDate())} ${p2(when.getHours())}:${p2(when.getMinutes())}:${p2(when.getSeconds())}`;
+  const ifd0 = [
+    { tag: 0x0131, type: 2, v: ascii('Field Photo Log') },
+    { tag: 0x0132, type: 2, v: ascii(local) },
+    { tag: 0x8825, type: 4, v: [0] }               // pointer to GPS IFD, filled in below
+  ];
+  const gps = [
+    { tag: 0x0000, type: 1, v: [2, 3, 0, 0] },
+    { tag: 0x0001, type: 2, v: ascii(fix.lat >= 0 ? 'N' : 'S') },
+    { tag: 0x0002, type: 5, v: dms(fix.lat) },
+    { tag: 0x0003, type: 2, v: ascii(fix.lng >= 0 ? 'E' : 'W') },
+    { tag: 0x0004, type: 5, v: dms(fix.lng) }
+  ];
+  if(fix.alt != null && isFinite(fix.alt)){
+    gps.push({ tag: 0x0005, type: 1, v: [fix.alt < 0 ? 1 : 0] });
+    gps.push({ tag: 0x0006, type: 5, v: [[Math.round(Math.abs(fix.alt) * 100), 100]] });
+  }
+  gps.push({ tag: 0x0007, type: 5, v: [[when.getUTCHours(), 1], [when.getUTCMinutes(), 1], [when.getUTCSeconds(), 1]] });
+  if(head && isFinite(head.dir)){
+    gps.push({ tag: 0x0010, type: 2, v: ascii(head.src === 'compass' ? 'M' : 'T') });
+    gps.push({ tag: 0x0011, type: 5, v: [[Math.round(((head.dir % 360) + 360) % 360 * 100), 100]] });
+  }
+  gps.push({ tag: 0x001D, type: 2, v: ascii(`${when.getUTCFullYear()}:${p2(when.getUTCMonth()+1)}:${p2(when.getUTCDate())}`) });
+  if(fix.acc != null && isFinite(fix.acc)) gps.push({ tag: 0x001F, type: 5, v: [[Math.round(fix.acc * 100), 100]] });
+
+  const bytesOf = e => e.v.length * SZ[e.type];
+  const ifdLen = es => 2 + es.length * 12 + 4 + es.reduce((s, e) => { const n = bytesOf(e); return s + (n > 4 ? n + (n & 1) : 0); }, 0);
+  const gpsOff = 8 + ifdLen(ifd0);
+  ifd0[2].v = [gpsOff];
+  const total = gpsOff + ifdLen(gps);
+  const buf = new ArrayBuffer(total), dv = new DataView(buf);
+  dv.setUint8(0, 0x4D); dv.setUint8(1, 0x4D); dv.setUint16(2, 42); dv.setUint32(4, 8);  // big-endian TIFF header
+  const writeIfd = (off, es) => {
+    dv.setUint16(off, es.length);
+    let dataOff = off + 2 + es.length * 12 + 4;
+    es.forEach((e, i) => {
+      const p = off + 2 + i * 12, n = bytesOf(e);
+      dv.setUint16(p, e.tag); dv.setUint16(p + 2, e.type); dv.setUint32(p + 4, e.v.length);
+      let w = p + 8;
+      if(n > 4){ dv.setUint32(p + 8, dataOff); w = dataOff; dataOff += n + (n & 1); }
+      e.v.forEach((val, k) => {
+        if(e.type === 1 || e.type === 2) dv.setUint8(w + k, val);
+        else if(e.type === 3) dv.setUint16(w + k * 2, val);
+        else if(e.type === 4) dv.setUint32(w + k * 4, val);
+        else { dv.setUint32(w + k * 8, val[0]); dv.setUint32(w + k * 8 + 4, val[1]); }
+      });
+    });
+    dv.setUint32(off + 2 + es.length * 12, 0);
+  };
+  writeIfd(8, ifd0);
+  writeIfd(gpsOff, gps);
+  return new Uint8Array(buf);
+}
+async function writeExifGps(blob, fix, head, when = new Date()){
+  try{
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    if(buf[0] !== 0xFF || buf[1] !== 0xD8) return blob;
+    for(let off = 2; off + 9 < buf.length && buf[off] === 0xFF;){
+      const marker = buf[off + 1];
+      if(marker === 0xDA || marker === 0xD9) break;
+      if(marker === 0xE1 && buf[off+4] === 0x45 && buf[off+5] === 0x78 && buf[off+6] === 0x69 && buf[off+7] === 0x66) return blob; // already has EXIF
+      off += 2 + ((buf[off + 2] << 8) | buf[off + 3]);
+    }
+    const tiff = buildExifTiff(fix, head, when);
+    const segLen = 2 + 6 + tiff.length;
+    if(segLen > 65535) return blob;
+    const seg = new Uint8Array(2 + segLen);
+    seg[0] = 0xFF; seg[1] = 0xE1; seg[2] = segLen >> 8; seg[3] = segLen & 255;
+    seg.set([0x45, 0x78, 0x69, 0x66, 0, 0], 4);
+    seg.set(tiff, 10);
+    let ins = 2;
+    if(buf[2] === 0xFF && buf[3] === 0xE0) ins = 4 + ((buf[4] << 8) | buf[5]);   // after a JFIF header
+    return new Blob([buf.slice(0, ins), seg, buf.slice(ins)], { type: 'image/jpeg' });
+  }catch(e){ console.warn('EXIF write failed', e); return blob; }
+}
+
+/* ---------- turning a captured blob into a pinned, linked log entry ---------- */
+let storeWarned = false;
+async function finishCapture({ blob, ext, mediaType, duration, fix, head, thumb, prefix, waitMs = 8000 }){
+  const fileName = stampName(prefix, ext);
+  let stored = false;
+  try{ await FieldStore.putMedia(fileName, blob); stored = true; }
+  catch(e){
+    console.warn('Could not keep media on device', e);
+    if(!storeWarned){ storeWarned = true; alert('This browser would not store the file on the phone (private browsing or storage full?). It is shown for now, but export a field pack before closing the page.'); }
+  }
+  const liveUrl = URL.createObjectURL(blob);
+  if(!thumb) thumb = await makeThumb(blob, mediaType, duration);
+  if(!fix && waitMs){
+    setCamToast('Waiting for GPS…', null);
+    fix = await waitForFix(waitMs);
+  }
+  const capturedAt = new Date().toISOString();
+  if(fix){
+    return addPhotoRecord({
+      id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      thumb, fileName, _liveUrl: liveUrl,
+      lat: fix.lat, lng: fix.lng, gpsAcc: fix.acc != null ? Math.round(fix.acc * 10) / 10 : null,
+      dir: head ? head.dir : 0, dirSrc: head ? head.src : 'none',
+      label: fileName.replace(/\.[^.]+$/, ''),
+      source: 'gps', comment: '',
+      color: '#f5a300', shape: mediaType === 'audio' ? 'square' : 'circle', fontSize: 11,
+      mediaType, duration: duration || null, stored, capturedAt
+    }, { pan: !byId('cam').classList.contains('show') });
+  }
+  queueManualPlacement({
+    file: new File([blob], fileName, { type: blob.type }), thumb, fileName, liveUrl, mediaType, duration,
+    extra: { stored, capturedAt, dir: head ? head.dir : null, reason: `${fileName}: no GPS fix when it was captured — place it on the map.` }
+  });
+  return null;
+}
+function captureSummary(p){
+  if(!p) return 'Saved without GPS — place it on the map after closing the camera.';
+  const kind = p.mediaType === 'audio' ? 'Audio note' : p.mediaType === 'video' ? 'Video' : 'Photo';
+  const links = (p.links || []).map(l => `${linkName(l)} (${Math.round(l.d)} m)`).join(', ');
+  return `${kind} #${p.num} saved` + (p.gpsAcc != null ? ` · ±${Math.round(p.gpsAcc)} m` : '') + (links ? ` · 🔗 ${links}` : ' · no sketch point nearby');
+}
+
+/* ---------- in-app camera / recorder overlay ---------- */
+const VIDEO_MIMES = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+const AUDIO_MIMES = ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
+const cam = { mode: 'photo', facing: 'environment', stream: null, tok: 0, recorder: null, recMode: null, chunks: [],
+              recStart: 0, recTimer: null, recFix: null, recHead: null, recThumb: null, levels: [],
+              audioCtx: null, analyser: null, raf: null, busy: false, lastId: null, count: 0, pushed: false };
+function pickMime(list){
+  if(!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
+  for(const m of list){ try{ if(MediaRecorder.isTypeSupported(m)) return m; }catch(e){} }
+  return '';
+}
+function camOpen(){ return byId('cam').classList.contains('show'); }
+function showCamErr(msg){ const e = byId('camErr'); e.innerHTML = msg; e.classList.toggle('show', !!msg); }
+function camErrMsg(e){
+  const n = e && e.name;
+  if(!window.isSecureContext) return 'The camera is blocked because this page is not on a secure https:// address.<br>Use the "Phone camera app" buttons instead, or host the page on https.';
+  if(n === 'NotAllowedError' || n === 'SecurityError') return 'Camera / microphone permission was refused.<br>Allow it for this site in the browser settings, then try again.';
+  if(n === 'NotFoundError' || n === 'OverconstrainedError') return 'No suitable camera or microphone was found on this device.';
+  if(n === 'NotReadableError') return 'The camera is being used by another app. Close it and try again.';
+  return 'Could not start the camera: ' + escapeHtml((e && e.message) || String(e));
+}
+async function openCamera(mode){
+  startField();
+  closePanelOnMobile();
+  byId('cam').classList.add('show');
+  if(!cam.pushed){ try{ history.pushState({ fieldCam: 1 }, ''); cam.pushed = true; }catch(e){} }
+  cam.count = 0;
+  byId('camCount').textContent = '';
+  setCamToast('', null);
+  await setCamMode(mode || cam.mode);
+}
+function closeCamera(fromPop){
+  if(cam.recorder) stopRecording();
+  stopStream();
+  byId('cam').classList.remove('show');
+  showCamErr('');
+  if(cam.pushed){
+    cam.pushed = false;
+    if(!fromPop){ try{ history.back(); }catch(e){} }
+  }
+}
+window.addEventListener('popstate', () => { if(camOpen()) closeCamera(true); });
+async function setCamMode(mode){
+  if(cam.recorder) return;
+  cam.mode = mode;
+  byId('camModes').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  const sh = byId('camShutter');
+  sh.className = 'shutter' + (mode === 'video' ? ' vid' : mode === 'audio' ? ' aud' : '');
+  byId('audioStage').classList.toggle('show', mode === 'audio');
+  byId('camVideo').style.visibility = mode === 'audio' ? 'hidden' : 'visible';
+  byId('camFlip').style.visibility = mode === 'audio' ? 'hidden' : 'visible';
+  byId('audioHint').textContent = 'Tap the button to start recording an audio note. Tap again to stop.';
+  updateCamStatus();
+  await startStream();
+}
+function stopStream(){
+  cam.tok++;
+  if(cam.raf){ cancelAnimationFrame(cam.raf); cam.raf = null; }
+  if(cam.audioCtx){ try{ cam.audioCtx.close(); }catch(e){} cam.audioCtx = null; cam.analyser = null; }
+  if(cam.stream){ cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; }
+  const v = byId('camVideo');
+  v.srcObject = null;
+}
+async function startStream(){
+  stopStream();
+  const tok = cam.tok;
+  showCamErr('');
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ showCamErr(camErrMsg({ name: 'NotSupported', message: 'this browser has no camera access' })); return; }
+  const wantVideo = cam.mode !== 'audio', wantAudio = cam.mode !== 'photo';
+  let stream;
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: wantVideo ? { facingMode: { ideal: cam.facing }, width: { ideal: 2560 }, height: { ideal: 1920 } } : false,
+      audio: wantAudio ? { echoCancellation: true, noiseSuppression: true } : false
+    });
+  }catch(e){
+    if(wantVideo && e && e.name === 'OverconstrainedError'){
+      try{ stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: wantAudio }); }catch(e2){ if(tok === cam.tok) showCamErr(camErrMsg(e2)); return; }
+    } else { if(tok === cam.tok) showCamErr(camErrMsg(e)); return; }
+  }
+  if(tok !== cam.tok || !camOpen()){ stream.getTracks().forEach(t => t.stop()); return; }
+  cam.stream = stream;
+  if(wantVideo){
+    const v = byId('camVideo');
+    v.srcObject = stream;
+    try{ await v.play(); }catch(e){}
+  }
+  if(cam.mode === 'audio') startLevelMeter();
+}
+function startLevelMeter(){
+  try{
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC || !cam.stream) return;
+    cam.audioCtx = new AC();
+    const src = cam.audioCtx.createMediaStreamSource(cam.stream);
+    cam.analyser = cam.audioCtx.createAnalyser();
+    cam.analyser.fftSize = 1024;
+    src.connect(cam.analyser);
+    const data = new Uint8Array(cam.analyser.fftSize);
+    const cv = byId('levelCanvas'), g = cv.getContext('2d');
+    const hist = [];
+    let lastSample = 0;
+    const draw = () => {
+      if(!cam.analyser) return;
+      cam.analyser.getByteTimeDomainData(data);
+      let peak = 0;
+      for(let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i] - 128) / 128);
+      const lv = Math.min(1, peak * 1.6);
+      hist.push(lv); if(hist.length > 70) hist.shift();
+      const now = performance.now();
+      if(cam.recorder && cam.recMode === 'audio' && now - lastSample > 100){ cam.levels.push(lv); lastSample = now; }
+      g.clearRect(0, 0, cv.width, cv.height);
+      const bw = cv.width / 70;
+      g.fillStyle = cam.recorder ? '#e53935' : '#f5a300';
+      hist.forEach((v, i) => { const h = Math.max(6, v * cv.height); g.fillRect(i * bw + 2, (cv.height - h) / 2, bw - 4, h); });
+      cam.raf = requestAnimationFrame(draw);
+    };
+    draw();
+  }catch(e){ console.warn('level meter unavailable', e); }
+}
+function updateCamStatus(){
+  if(!camOpen()) return;
+  const f = fieldLastFix(30000);
+  const gEl = byId('camGps');
+  if(f) gEl.innerHTML = `<span class="dot ${gpsClass(f)}"></span>GPS ±${Math.round(f.acc)} m`;
+  else gEl.innerHTML = `<span class="dot ${field.gpsError ? 'bad' : 'ok'}"></span>GPS: ${field.gpsError || 'searching…'}`;
+  const h = currentHeading();
+  byId('camHead').textContent = h ? `Facing ${fmtDir(h.dir)}` : (field.compassDenied ? 'Compass: permission denied' : 'Facing: no compass reading');
+  const t = nearbyText();
+  byId('camLink').textContent = t === null ? '' : (t ? `🔗 Will link to: ${t}` : `No sketch point within ${LINK.radius} m`);
+}
+function flashShutter(){
+  const f = byId('camFlash');
+  f.classList.add('go');
+  requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove('go')));
+  try{ if(navigator.vibrate) navigator.vibrate(30); }catch(e){}
+}
+function setCamToast(msg, id){
+  const t = byId('camToast');
+  byId('camToastMsg').textContent = msg || '';
+  t.classList.toggle('show', !!msg);
+  byId('camToastNote').style.display = id ? '' : 'none';
+  clearTimeout(t._h);
+  cam.lastId = id || cam.lastId;
+  if(msg && id) t._h = setTimeout(() => t.classList.remove('show'), 6000);
+}
+function afterCapture(p){
+  setCamToast(captureSummary(p), p ? p.id : null);
+  if(p){
+    cam.count++;
+    byId('camCount').textContent = `${cam.count} this session`;
+    byId('camLast').innerHTML = `<img src="${p.thumb}" alt="">`;
+  }
+}
+async function takePhoto(){
+  if(cam.busy) return;
+  const v = byId('camVideo');
+  if(!cam.stream || !v.videoWidth){ showCamErr('The camera is not ready yet.'); return; }
+  cam.busy = true;
+  const fix = fieldLastFix(15000), head = currentHeading(), when = new Date();
+  flashShutter();
+  try{
+    let blob = null;
+    const track = cam.stream.getVideoTracks()[0];
+    // Full sensor resolution where supported (Chrome on Android), else the preview frame.
+    if(track && 'ImageCapture' in window){
+      try{ blob = await withTimeout(new ImageCapture(track).takePhoto(), 4000); }catch(e){ blob = null; }
+      if(v.paused){ try{ await v.play(); }catch(e){} }
+    }
+    if(!blob || !/jpe?g/.test(blob.type)){
+      const c = document.createElement('canvas');
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      c.getContext('2d').drawImage(v, 0, 0);
+      blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+    }
+    if(!blob) throw new Error('No image data');
+    if(fix) blob = await writeExifGps(blob, fix, head, when);
+    const p = await finishCapture({ blob, ext: 'jpg', mediaType: 'photo', fix, head, prefix: 'IMG' });
+    afterCapture(p);
+  }catch(e){
+    console.error(e);
+    setCamToast('Photo failed: ' + (e.message || e), null);
+  }finally{ cam.busy = false; }
+}
+function startRecording(){
+  if(!cam.stream){ showCamErr('Camera / microphone not ready yet.'); return; }
+  if(!window.MediaRecorder){ showCamErr('This browser cannot record here. Use "Phone camera app: video" instead.'); return; }
+  const audio = cam.mode === 'audio';
+  if(cam.audioCtx && cam.audioCtx.state === 'suspended') cam.audioCtx.resume().catch(() => {});
+  const mime = pickMime(audio ? AUDIO_MIMES : VIDEO_MIMES);
+  let rec;
+  try{ rec = mime ? new MediaRecorder(cam.stream, { mimeType: mime }) : new MediaRecorder(cam.stream); }
+  catch(e){ try{ rec = new MediaRecorder(cam.stream); }catch(e2){ showCamErr('Recording is not supported here: ' + escapeHtml(e2.message || e2)); return; } }
+  cam.chunks = []; cam.levels = [];
+  cam.recMode = cam.mode;
+  cam.recFix = fieldLastFix(15000);
+  cam.recHead = currentHeading();
+  cam.recThumb = audio ? null : grabPreviewThumb();
+  cam.recStart = Date.now();
+  rec.ondataavailable = e => { if(e.data && e.data.size) cam.chunks.push(e.data); };
+  rec.onstop = () => onRecordingStopped(rec);
+  rec.start(1000);
+  cam.recorder = rec;
+  byId('camShutter').classList.add('rec');
+  byId('camModes').querySelectorAll('button').forEach(b => b.disabled = true);
+  byId('camFlip').disabled = true;
+  if(audio) byId('audioHint').textContent = 'Recording… tap the button to stop and save.';
+  const rt = byId('recTime');
+  rt.classList.add('show');
+  const tick = () => { rt.textContent = '● ' + (fmtDuration((Date.now() - cam.recStart) / 1000) || '0:00'); };
+  tick();
+  cam.recTimer = setInterval(tick, 500);
+}
+function stopRecording(){
+  if(cam.recorder && cam.recorder.state !== 'inactive'){ try{ cam.recorder.stop(); }catch(e){} }
+}
+async function onRecordingStopped(rec){
+  clearInterval(cam.recTimer);
+  byId('recTime').classList.remove('show');
+  byId('camShutter').classList.remove('rec');
+  byId('camModes').querySelectorAll('button').forEach(b => b.disabled = false);
+  byId('camFlip').disabled = false;
+  const audio = cam.recMode === 'audio';
+  if(audio) byId('audioHint').textContent = 'Tap the button to start recording an audio note. Tap again to stop.';
+  const type = (rec.mimeType || (cam.chunks[0] && cam.chunks[0].type) || (audio ? 'audio/webm' : 'video/webm')).split(';')[0];
+  const blob = new Blob(cam.chunks, { type });
+  const duration = (Date.now() - cam.recStart) / 1000;
+  const fix = cam.recFix, head = cam.recHead, thumb = audio ? audioThumb(cam.levels, duration) : cam.recThumb;
+  cam.recorder = null; cam.chunks = [];
+  if(!blob.size){ setCamToast('Recording failed — nothing was captured.', null); return; }
+  try{
+    const p = await finishCapture({ blob, ext: extFor(type, audio), mediaType: audio ? 'audio' : 'video', duration, fix, head, thumb, prefix: audio ? 'AUD' : 'VID' });
+    afterCapture(p);
+  }catch(e){ console.error(e); setCamToast('Saving the recording failed: ' + (e.message || e), null); }
+}
+byId('camShutter').onclick = () => {
+  if(cam.mode === 'photo') takePhoto();
+  else if(cam.recorder) stopRecording();
+  else startRecording();
+};
+byId('camModes').querySelectorAll('button').forEach(b => b.onclick = () => setCamMode(b.dataset.mode));
+byId('camClose').onclick = () => closeCamera(false);
+byId('camFlip').onclick = () => { cam.facing = cam.facing === 'environment' ? 'user' : 'environment'; startStream(); };
+byId('camToastNote').onclick = () => {
+  const p = allPhotos.find(x => x.id === cam.lastId);
+  if(!p) return;
+  const txt = prompt(`Note for #${p.num}`, p.comment || '');
+  if(txt !== null) saveComment(p.id, txt);
+};
+byId('camLast').onclick = () => {
+  const p = allPhotos.find(x => x.id === cam.lastId);
+  if(!p) return;
+  closeCamera(false);
+  openLightbox(p.id);
+};
+document.addEventListener('visibilitychange', () => {
+  if(!camOpen()) return;
+  if(document.visibilityState === 'hidden'){ if(cam.recorder) stopRecording(); }
+  else if(!cam.stream || cam.stream.getTracks().some(t => t.readyState === 'ended')) startStream();
+});
+
+/* ---------- "phone camera app" fallback (<input capture>) ---------- */
+function nativeCapture(kind){
+  startField();
+  field.nativeFix = fieldLastFix(60000);
+  field.nativeHead = currentHeading();
+  byId(kind === 'video' ? 'nativeVideoInput' : 'nativePhotoInput').click();
+}
+async function handleNativeCapture(file, kind){
+  if(!file) return;
+  mapToast('Adding ' + kind + '…');
+  try{
+    const fixNow = fieldLastFix(20000);
+    let fix = fixNow || field.nativeFix;
+    let head = currentHeading() || field.nativeHead;
+    let duration = null, blob = file;
+    if(kind === 'photo'){
+      const r = await readGpsAndHeading(file);
+      if(r.lat != null){ fix = { lat: r.lat, lng: r.lng, acc: null }; }
+      if(r.dir != null) head = { dir: r.dir, src: 'exif' };
+      else if(fix && /jpe?g/i.test(file.type)) blob = await writeExifGps(file, fix, head);
+    }
+    const thumb = await makeThumb(file, kind, null).catch(() => null);
+    if(kind === 'video'){
+      try{ duration = (await withTimeout(captureVideoFrame(file), 6000)).duration; }catch(e){}
+      if(!fix){ const g = await readVideoGps(file); if(g) fix = { lat: g.lat, lng: g.lng, acc: null }; }
+    }
+    const ext = ((file.name || '').match(/\.([a-z0-9]+)$/i) || [])[1] || extFor(file.type, false);
+    const p = await finishCapture({ blob, ext: ext.toLowerCase(), mediaType: kind, duration, fix, head, thumb,
+                                    prefix: kind === 'video' ? 'VID' : 'IMG' });
+    mapToast(captureSummary(p), 5000);
+  }catch(e){
+    console.error(e);
+    alert('Could not add that ' + kind + ': ' + (e.message || e));
+  }
+}
+byId('nativePhotoInput').addEventListener('change', e => { handleNativeCapture(e.target.files[0], 'photo'); e.target.value = ''; });
+byId('nativeVideoInput').addEventListener('change', e => { handleNativeCapture(e.target.files[0], 'video'); e.target.value = ''; });
+
+/* ---------- direction editing without Ctrl (touch screens) ---------- */
+function previewDir(id, deg){
+  const m = markers[id], svg = m && m.getElement() && m.getElement().querySelector('svg');
+  if(svg) svg.style.transform = `rotate(${deg}deg)`;
+}
+function setPhotoDir(id, deg, src){
+  const p = allPhotos.find(x => x.id === id);
+  if(!p) return;
+  p.dir = Math.round(((deg % 360) + 360) % 360 * 10) / 10;
+  p.dirSrc = src || 'manual';
+  if(markers[id]) markers[id].setIcon(arrowIcon(p.dir, markerColor(p), p.num, markerShape(p), markerFontSize(p)));
+  updatePhotoUI(id);
+  if(lightboxOpenId === id){
+    byId('lbDir').value = Math.round(p.dir) % 360;
+    byId('lbDirVal').textContent = fmtDir(p.dir);
+    byId('lbDesc').textContent = descText(p);
+  }
+  savePersisted();
+}
+function setDirFromCompass(id){
+  const h = currentHeading();
+  if(h){ setPhotoDir(id, h.dir, h.src); mapToast('Direction set to ' + fmtDir(h.dir)); return; }
+  if(!field.on){ startField(); alert('Compass starting… point the phone the way the photo faces, then tap again.'); }
+  else alert('No compass reading on this device. Use the direction slider instead.');
+}
+
+/* ---------- field pack export (ZIP) and device reset ---------- */
+async function exportFieldPack(){
+  if(!allPhotos.length && !(window.sketchAPI && window.sketchAPI.count())){ alert('Nothing to export yet.'); return; }
+  const btn = byId('exportPackBtn'), label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Building ZIP…';
+  try{
+    if(typeof JSZip === 'undefined') await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+    const zip = new JSZip();
+    const base = suggestedFilename().replace(/\.html?$/i, '');
+    zip.file(base + '.html', buildSiteWalkHtml());
+    if(allPhotos.length) zip.file(base + '_photo_list.csv', '﻿' + buildPhotoListCsv());
+    const missing = [], added = new Set();
+    for(const p of allPhotos){
+      if(!p.fileName || added.has(p.fileName)) continue;
+      let blob = null;
+      try{ blob = await FieldStore.getMedia(p.fileName); }catch(e){}
+      if(!blob && p._liveUrl){ try{ blob = await (await fetch(p._liveUrl)).blob(); }catch(e){} }
+      if(blob){ zip.file(p.fileName, blob, { binary: true }); added.add(p.fileName); }
+      else missing.push(p.fileName);
+    }
+    zip.file('README.txt',
+      'Site walk field pack\r\n====================\r\n' +
+      `Exported ${new Date().toLocaleString()}\r\n\r\n` +
+      `1. Unzip everything into ONE folder (keep the file names unchanged).\r\n2. Open ${base}.html in a browser.\r\n` +
+      '   Pins, headings, comments, sketch shapes and links are inside the .html;\r\n   full-size photos, videos and audio load from the files next to it.\r\n' +
+      (missing.length ? `\r\nNot included (not stored on the exporting device — copy these in yourself):\r\n${missing.map(m => '  - ' + m).join('\r\n')}\r\n` : ''));
+    btn.textContent = 'Compressing…';
+    const out = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+    downloadBlob(out, base + '_field_pack.zip');
+    mapToast(`Field pack ready: ${added.size} media file${added.size === 1 ? '' : 's'}` + (missing.length ? `, ${missing.length} not on this device` : ''), 5000);
+  }catch(e){
+    console.error(e);
+    alert('Could not build the field pack: ' + (e.message || e) + '\n\nIf you are offline, "Save site walk" still works.');
+  }finally{
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+async function clearDevice(){
+  if(!confirm('Start a new, empty walk?\n\nThis deletes every photo, video, audio note and sketch shape stored in this browser on this device. Export a field pack first if you still need them.')) return;
+  deviceReady = false;
+  try{ await FieldStore.clearAll(); }catch(e){}
+  try{ if(window.storage) await window.storage.set(STORAGE_KEY, '[]', false); }catch(e){}
+  loadPhotosData([]);
+  if(window.sketchAPI) window.sketchAPI.clear();
+  deviceReady = true;
+  await saveDeviceState();
+  mapToast('New walk started.');
+}
+
+/* ---------- wiring + start-up ---------- */
+async function fieldBoot(){
+  const shell = document.querySelector('.shell');
+  byId('panelToggle').onclick = () => { shell.classList.toggle('panelOpen'); };
+  byId('scrim').onclick = () => shell.classList.remove('panelOpen');
+  byId('pickOnMapBtn').addEventListener('click', closePanelOnMobile);
+
+  byId('fieldToggleBtn').onclick = () => { if(field.on) stopField(); else startField(); };
+  byId('capPhotoBtn').onclick = () => openCamera(cam.mode === 'audio' ? 'photo' : cam.mode);
+  byId('capAudioBtn').onclick = () => openCamera('audio');
+  byId('fabCamera').onclick = () => openCamera(cam.mode === 'audio' ? 'photo' : cam.mode);
+  byId('fabAudio').onclick = () => openCamera('audio');
+  byId('nativePhotoBtn').onclick = () => nativeCapture('photo');
+  byId('nativeVideoBtn').onclick = () => nativeCapture('video');
+  byId('fabLocate').onclick = () => {
+    startField();
+    field.follow = !field.follow;
+    const f = fieldLastFix(60000);
+    if(field.follow && f) map.setView([f.lat, f.lng], Math.max(map.getZoom(), 18));
+    else if(field.follow) mapToast('Waiting for GPS…');
+    queueFieldUI();
+  };
+  byId('exportPackBtn').onclick = exportFieldPack;
+  byId('clearDeviceBtn').onclick = clearDevice;
+
+  byId('linkRadius').value = LINK.radius;
+  byId('linkShapes').checked = LINK.shapes;
+  byId('linkLines').checked = LINK.lines;
+  byId('linkRadius').onchange = e => {
+    const v = parseFloat(e.target.value);
+    if(!(v > 0)){ e.target.value = LINK.radius; return; }
+    LINK.radius = v; saveLinkSettings(); relinkAll(); lastSketchSig = sketchSignature();
+  };
+  byId('linkShapes').onchange = e => { LINK.shapes = e.target.checked; saveLinkSettings(); relinkAll(); lastSketchSig = sketchSignature(); };
+  byId('linkLines').onchange = e => { LINK.lines = e.target.checked; saveLinkSettings(); drawLinkLines(); };
+  byId('relinkBtn').onclick = () => {
+    relinkAll();
+    const n = allPhotos.filter(p => (p.links || []).length).length;
+    mapToast(`${n} of ${allPhotos.length} item${allPhotos.length === 1 ? '' : 's'} linked to a sketch point.`);
+  };
+  if(IS_TOUCH) showSecureWarning();
+
+  // Restore the walk autosaved on this device (photos, links, sketch), if there is one.
+  try{ await initDone; }catch(e){}
+  try{
+    let st = await FieldStore.getState(SESSION_KEY);
+    if(!st && LEGACY_SESSION_KEY !== SESSION_KEY) st = await FieldStore.getState(LEGACY_SESSION_KEY);
+    if(st && st.saved){
+      loadPhotosData(st.photos || []);
+      if(window.sketchAPI){
+        window.sketchAPI.clear();
+        if(st.sketch) window.sketchAPI.loadFC(st.sketch, !(st.photos || []).length);
+      }
+      const n = (st.photos || []).length;
+      if(n) mapToast(`Restored ${n} item${n === 1 ? '' : 's'} saved on this device.`);
+    }
+  }catch(e){ console.warn('No on-device session restored', e); }
+  deviceReady = true;
+  await rehydrateStoredMedia();
+  lastSketchSig = null;
+  onSketchChanged();
+  queueFieldUI();
+  window.siteWalkIncomingFile();   // app opened by tapping a walk file
+}
+
+/* ======================= init ======================= */
+const initDone = (async function init(){
+  const embedded = readEmbeddedDataFromPage();
+  allPhotos = (embedded && embedded.length) ? embedded : await loadPersisted();
+  renumberPhotos();
+  allPhotos.forEach(p=> addMarker(p));
+  rebuildList();
+  if(allPhotos.length){
+    const bounds = L.latLngBounds(allPhotos.map(p=>[p.lat,p.lng]));
+    map.fitBounds(bounds.pad(0.3));
+  }
+  scheduleTitleUpdate();
+})();
+;(function(){
+/* ======================= sketch tool ======================= */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const DEF = {color:'#e4572e', weight:3, opacity:1, dash:'', fill:'#e4572e', fillOp:0.25};
+const esri = p => 'https://server.arcgisonline.com/ArcGIS/rest/services/' + p + '/MapServer/tile/{z}/{y}/{x}';
+const attr = 'Tiles &copy; Esri';
+const base = {
+  'Esri Imagery': L.tileLayer(esri('World_Imagery'), {attribution: attr, maxZoom: 19}),
+  'Esri Streets': L.tileLayer(esri('World_Street_Map'), {attribution: attr, maxZoom: 19}),
+  'Esri Topographic': L.tileLayer(esri('World_Topo_Map'), {attribution: attr, maxZoom: 19}),
+  'Esri Light Gray': L.tileLayer(esri('Canvas/World_Light_Gray_Base'), {attribution: attr, maxZoom: 16})
+};
+const labels = L.tileLayer(esri('Reference/World_Boundaries_and_Places'), {maxZoom: 19});
+base['OpenStreetMap'] = osmLayer;
+let curBase = osmLayer;
+$('bm').onchange = () => { map.removeLayer(curBase); curBase = base[$('bm').value]; curBase.addTo(map).bringToBack(); };
+$('grey').onchange = () => $('map').classList.toggle('grey', $('grey').checked);
+$('lab').onchange = () => $('lab').checked ? labels.addTo(map) : map.removeLayer(labels);
+L.control.scale().addTo(map);
+
+const items = new L.FeatureGroup().addTo(map);
+map.addControl(new L.Control.Draw({edit: {featureGroup: items}, draw: {circlemarker: false}}));
+
+const counts = {Line: 0, Polygon: 0, Circle: 0, Point: 0};
+let sel = null;
+let groups = [];           // {id, name, inLegend, hidden}
+let activeGroup = '';      // new shapes are added to this group
+let multi = new Set(), listOrder = [], anchor = null;   // multi = every selected layer (sel is the primary one)
+let editingNow = false;    // while editing/deleting, show hidden shapes so Leaflet.draw can work on them
+const newGid = () => 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const grp = id => groups.find(g => g.id === id);
+const members = id => items.getLayers().filter(l => l.meta.group === id);
+
+function icon(s) {
+  const z = 8 + s.weight * 2;
+  return L.divIcon({className: '', iconSize: [z, z], iconAnchor: [z/2, z/2],
+    html: `<div class="pin" style="background:${s.fill};border:${Math.max(1, s.weight/2)}px solid ${s.color};opacity:${s.opacity}"></div>`});
+}
+function apply(l) {
+  const s = l.meta.style;
+  if (l instanceof L.Marker) l.setIcon(icon(s));
+  else l.setStyle({color: s.color, weight: s.weight, opacity: s.opacity, dashArray: s.dash || null, fillColor: s.fill, fillOpacity: s.fillOp});
+  const el = l.getElement && l.getElement();
+  if (el) el.classList.toggle('sel', multi.has(l));
+}
+function register(l, kind, style, name, inLegend = true, group = '', uid = '') {
+  // uid: stable id that survives save/reopen, so photos stay linked to the same sketch point
+  if (!uid || items.getLayers().some(x => x.meta && x.meta.uid === uid)) uid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  l.meta = {kind, name: name || `${kind} ${++counts[kind]}`, style: Object.assign({}, style), inLegend, group, uid};
+  items.addLayer(l);
+  l.on('click', e => {
+    L.DomEvent.stopPropagation(e);
+    const oe = e.originalEvent || {};
+    if (oe.shiftKey || oe.ctrlKey || oe.metaKey) toggleSel(l); else { anchor = l; select(l); }
+  });
+  apply(l);
+  refresh();
+}
+function readForm() {
+  return {color: $('col').value, weight: +$('wt').value, opacity: +$('op').value, dash: $('dash').value, fill: $('fil').value, fillOp: +$('fop').value};
+}
+function fillForm(l) {
+  const s = l.meta.style;
+  $('nm').value = l.meta.name; $('col').value = s.color; $('wt').value = s.weight; $('op').value = s.opacity;
+  $('dash').value = s.dash; $('fil').value = s.fill; $('fop').value = s.fillOp; $('inl').checked = l.meta.inLegend;
+  outputs();
+  const ks = [...multi].map(x => x.meta.kind); if (!ks.length) ks.push(l.meta.kind);
+  const allK = k => ks.every(x => x === k);
+  $('fillrows').style.display = allK('Line') ? 'none' : '';
+  $('fop').closest('label').style.display = allK('Point') ? 'none' : '';
+  $('dashrow').style.display = allK('Point') ? 'none' : '';
+}
+function outputs() { $('wto').value = $('wt').value; $('opo').value = $('op').value; $('fopo').value = $('fop').value; }
+function select(l) { setSel(l ? [l] : [], l); }
+function setSel(arr, primary) {
+  const prev = [...multi];
+  multi = new Set(arr);
+  sel = arr.length ? (primary && multi.has(primary) ? primary : arr[arr.length - 1]) : null;
+  prev.forEach(x => { if (items.hasLayer(x)) apply(x); });
+  $('panel').hidden = !sel; $('none').hidden = !!sel;
+  if (sel) { fillForm(sel); arr.forEach(x => { apply(x); if (x.bringToFront) x.bringToFront(); }); }
+  refresh();
+}
+function toggleSel(l) {
+  anchor = l;
+  const arr = [...multi];
+  if (multi.has(l)) setSel(arr.filter(x => x !== l)); else setSel([...arr, l], l);
+}
+function rangeSel(l) {
+  const a = listOrder.indexOf(anchor && multi.size ? anchor : sel), b = listOrder.indexOf(l);
+  if (a < 0 || b < 0) { toggleSel(l); return; }
+  setSel(listOrder.slice(Math.min(a, b), Math.max(a, b) + 1), l);
+}
+function swatch(l) {
+  const s = l.meta.style, w = Math.min(s.weight, 8);
+  const st = `stroke="${s.color}" stroke-opacity="${s.opacity}" stroke-width="${w}"`;
+  if (l.meta.kind === 'Line')
+    return `<svg width="30" height="16"><line x1="2" x2="28" y1="8" y2="8" ${st} ${s.dash ? `stroke-dasharray="${s.dash}"` : ''}/></svg>`;
+  if (l.meta.kind === 'Point')
+    return `<svg width="30" height="16"><circle cx="15" cy="8" r="6" fill="${s.fill}" ${st}/></svg>`;
+  return `<svg width="30" height="16"><rect x="3" y="3" width="24" height="10" fill="${s.fill}" fill-opacity="${s.fillOp}" ${st} ${s.dash ? `stroke-dasharray="${s.dash}"` : ''}/></svg>`;
+}
+const legend = L.control({position: 'bottomleft'});
+legend.onAdd = () => (legend._d = L.DomUtil.create('div', 'legend'));
+legend.addTo(map);
+
+function applyVis() {
+  items.eachLayer(l => {
+    const g = grp(l.meta.group);
+    const show = editingNow || !(g && g.hidden);
+    if (show && !map.hasLayer(l)) map.addLayer(l);
+    else if (!show && map.hasLayer(l)) map.removeLayer(l);
+  });
+}
+function boundsOf(ms) {
+  let b = null;
+  ms.forEach(l => {
+    const lb = l.getBounds ? l.getBounds() : L.latLngBounds([l.getLatLng()]);
+    if (!b) b = L.latLngBounds(lb.getSouthWest(), lb.getNorthEast()); else b.extend(lb);
+  });
+  return b;
+}
+function assign(l, gid) {
+  const ls = (multi.has(l) && multi.size > 1) ? [...multi] : [l];
+  ls.forEach(x => {
+    x.meta.group = gid || '';
+    if (gid && $('gs').checked) {
+      const other = members(gid).find(m => !ls.includes(m));
+      if (other) x.meta.style = Object.assign({}, other.meta.style);
+    }
+    apply(x);
+  });
+  if (sel) fillForm(sel);
+  refresh();
+}
+function newGroup() {
+  const name = prompt('Group name', 'Group ' + (groups.length + 1));
+  if (!name || !name.trim()) return;
+  const g = {id: newGid(), name: name.trim(), inLegend: true, hidden: false};
+  groups.push(g); activeGroup = g.id;
+  if (sel) assign(sel, g.id); else refresh();
+}
+function refresh() {
+  applyVis();
+  const all = items.getLayers();
+  if (activeGroup && !grp(activeGroup)) activeGroup = '';
+  const opts = '<option value="">None</option>' + groups.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  $('grp').innerHTML = opts; $('ag').innerHTML = opts;
+  $('grp').value = sel ? (sel.meta.group || '') : '';
+  $('ag').value = activeGroup;
+  const nSel = multi.size;
+  $('multinote').hidden = nSel < 2;
+  $('multinote').textContent = `${nSel} shapes selected: changes apply to all of them.`;
+  $('nm').disabled = nSel > 1;
+  $('del').textContent = nSel > 1 ? `Delete ${nSel} shapes` : 'Delete shape';
+
+  // shapes list, organised by group
+  $('list').innerHTML = '';
+  const order = [];
+  const addRow = (l, member) => {
+    const g = grp(l.meta.group);
+    const li = document.createElement('li');
+    li.className = 'r ' + (multi.has(l) ? 'on ' : '') + (member ? 'mem ' : '') + (g && g.hidden ? 'dim' : '');
+    const nLinked = typeof linkedMediaFor === 'function' ? linkedMediaFor(l.meta.uid).length : 0;
+    li.innerHTML = `<input type="checkbox" class="rc" title="Select" ${multi.has(l) ? 'checked' : ''}><button>${swatch(l)}<span>${esc(l.meta.name)}</span>${nLinked ? `<span class="lcount" title="Linked photos / videos / audio notes">📎${nLinked}</span>` : ''}</button>`;
+    li.querySelector('.rc').onchange = () => { if (g && g.hidden) { g.hidden = false; applyVis(); } toggleSel(l); };
+    li.querySelector('button').onclick = ev => {
+      if (g && g.hidden) { g.hidden = false; applyVis(); }
+      if (ev.shiftKey) { rangeSel(l); return; }
+      if (ev.ctrlKey || ev.metaKey) { toggleSel(l); return; }
+      anchor = l; select(l);
+      map.fitBounds(l.getBounds ? l.getBounds() : L.latLngBounds([l.getLatLng()]), {maxZoom: 17});
+    };
+    order.push(l);
+    $('list').appendChild(li);
+  };
+  groups.forEach(g => {
+    const ms = members(g.id);
+    const gh = document.createElement('li'); gh.className = 'gh';
+    gh.textContent = `${g.name} (${ms.length})${g.hidden ? ' · hidden' : ''}`;
+    gh.title = 'Select all shapes in this group';
+    gh.onclick = ev => { if (ms.length) setSel(ev.ctrlKey || ev.metaKey ? [...new Set([...multi, ...ms])] : ms, ms[ms.length - 1]); };
+    $('list').appendChild(gh);
+    ms.forEach(l => addRow(l, true));
+  });
+  all.filter(l => !grp(l.meta.group)).forEach(l => addRow(l, false));
+  listOrder = order;
+
+  // groups panel
+  $('glist').innerHTML = '';
+  groups.forEach(g => {
+    const ms = members(g.id);
+    const d = document.createElement('div'); d.className = 'grow';
+    d.innerHTML = `<div class="gtop"><input type="checkbox" class="gv" title="Show / hide group" ${g.hidden ? '' : 'checked'}><b>${esc(g.name)}</b><span class="gc">${ms.length}</span></div>
+      <div class="gbtn"><button class="btn ghost gz">Zoom</button><button class="btn ghost gr">Rename</button><button class="btn ghost gu">Ungroup</button><button class="btn gd" style="border-color:var(--pink);color:var(--pink);">Delete</button>
+      <label class="gl"><input type="checkbox" class="gl-c" ${g.inLegend ? 'checked' : ''}> Legend</label></div>`;
+    d.querySelector('.gv').onchange = e => {
+      g.hidden = !e.target.checked;
+      if (g.hidden && [...multi].some(x => x.meta.group === g.id)) setSel([...multi].filter(x => x.meta.group !== g.id)); else refresh();
+    };
+    d.querySelector('.gz').onclick = () => {
+      if (!ms.length) return;
+      g.hidden = false; applyVis();
+      map.fitBounds(boundsOf(ms), {maxZoom: 17}); refresh();
+    };
+    d.querySelector('.gr').onclick = () => {
+      const n = prompt('Rename group', g.name);
+      if (n && n.trim()) { g.name = n.trim(); refresh(); }
+    };
+    d.querySelector('.gu').onclick = () => {
+      ms.forEach(l => l.meta.group = '');
+      groups = groups.filter(x => x !== g);
+      if (sel) fillForm(sel);
+      refresh();
+    };
+    d.querySelector('.gd').onclick = () => {
+      if (!confirm(`Delete group "${g.name}" and its ${ms.length} shape${ms.length === 1 ? '' : 's'}?`)) return;
+      if (ms.some(x => multi.has(x))) setSel([...multi].filter(x => !ms.includes(x)));
+      ms.forEach(l => items.removeLayer(l));
+      groups = groups.filter(x => x !== g);
+      refresh();
+    };
+    d.querySelector('.gl-c').onchange = e => { g.inLegend = e.target.checked; refresh(); };
+    $('glist').appendChild(d);
+  });
+
+  // legend: one row per group, then ungrouped shapes
+  const rows = [];
+  groups.forEach(g => { const ms = members(g.id); if (g.inLegend && !g.hidden && ms.length) rows.push({l: ms[0], name: g.name}); });
+  all.filter(l => !grp(l.meta.group) && l.meta.inLegend).forEach(l => rows.push({l, name: l.meta.name}));
+  const d = legend._d;
+  d.style.display = $('lon').checked && rows.length ? '' : 'none';
+  d.innerHTML = `<b>${esc($('lt').value)}</b>` + rows.map(r => `<div>${swatch(r.l)}<span>${esc(r.name)}</span></div>`).join('');
+
+  // let the field-capture linking / device autosave know the sketch may have changed
+  if (window.sketchAPI && typeof window.sketchAPI.onChange === 'function') window.sketchAPI.onChange();
+}
+
+// Draw events
+map.on(L.Draw.Event.CREATED, e => {
+  const t = e.layerType;
+  const kind = t === 'marker' ? 'Point' : t === 'circle' ? 'Circle' : t === 'polyline' ? 'Line' : 'Polygon';
+  const l = e.layer;
+  const ag = activeGroup && grp(activeGroup) ? activeGroup : '';
+  const first = ag ? members(ag)[0] : null;
+  register(l, kind, first ? first.meta.style : ($('panel').hidden ? DEF : readForm()), null, true, ag);
+  select(l);
+});
+map.on(L.Draw.Event.DELETED, () => { const keep = [...multi].filter(x => items.hasLayer(x)); if (keep.length !== multi.size) setSel(keep); else refresh(); });
+map.on('click', () => select(null));
+[L.Draw.Event.EDITSTART, L.Draw.Event.DELETESTART].forEach(ev => map.on(ev, () => { editingNow = true; applyVis(); }));
+[L.Draw.Event.EDITSTOP, L.Draw.Event.DELETESTOP].forEach(ev => map.on(ev, () => { editingNow = false; applyVis(); }));
+map.on(L.Draw.Event.EDITED, () => refresh());   // moved vertices/points → re-check links
+
+// Style form
+['nm','col','wt','op','dash','fil','fop','inl'].forEach(id => {
+  $(id).addEventListener('input', () => {
+    if (!sel) return;
+    const targets = multi.size ? [...multi] : [sel];
+    if (id === 'nm') { if (targets.length === 1) sel.meta.name = $('nm').value || sel.meta.name; }
+    else if (id === 'inl') targets.forEach(t => t.meta.inLegend = $('inl').checked);
+    else {
+      const k = {col: 'color', wt: 'weight', op: 'opacity', dash: 'dash', fil: 'fill', fop: 'fillOp'}[id];
+      const f = readForm(), set = new Set(targets);
+      if ($('gs').checked) targets.forEach(t => { if (t.meta.group) members(t.meta.group).forEach(m => set.add(m)); });
+      set.forEach(t => { t.meta.style[k] = f[k]; apply(t); });
+    }
+    outputs(); refresh();
+  });
+});
+$('lon').onchange = $('lt').oninput = refresh;
+$('grp').onchange = () => { if (sel) assign(sel, $('grp').value); };
+$('ag').onchange = () => { activeGroup = $('ag').value; };
+$('ng').onclick = newGroup;
+$('del').onclick = () => {
+  if (!sel) return;
+  const ls = [...multi];
+  if (ls.length > 1 && !confirm(`Delete ${ls.length} selected shapes?`)) return;
+  select(null); ls.forEach(l => items.removeLayer(l)); refresh();
+};
+$('sall').onclick = () => setSel(items.getLayers().filter(l => !(grp(l.meta.group) || {}).hidden));
+$('snone').onclick = () => select(null);
+
+// Export / import
+const toFC = () => {
+  const fc = {type: 'FeatureCollection', legendTitle: $('lt').value, groups: groups.map(g => Object.assign({}, g)), features: []};
+  if (typeof LINK !== 'undefined') fc.linkSettings = Object.assign({}, LINK);   // so the saved walk links the same way on every device
+  items.eachLayer(l => {
+    const g = l.toGeoJSON();
+    g.properties = {name: l.meta.name, kind: l.meta.kind, style: l.meta.style, inLegend: l.meta.inLegend, group: l.meta.group || '', uid: l.meta.uid};
+    if (l instanceof L.Circle) g.properties.radius = l.getRadius();
+    fc.features.push(g);
+  });
+  return fc;
+};
+$('exp').onclick = () => {
+  const fc = toFC();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(fc, null, 1)], {type: 'application/geo+json'}));
+  a.download = 'map-sketch.geojson'; a.click(); URL.revokeObjectURL(a.href);
+};
+$('expc').onclick = () => {
+  const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+  const rows = [['name', 'type', 'vertex', 'latitude', 'longitude', 'radius_m', 'colour', 'in_legend', 'group', 'linked_media']];
+  items.eachLayer(l => {
+    const m = l.meta;
+    let pts;
+    if (l instanceof L.Marker || l instanceof L.Circle) pts = [l.getLatLng()];
+    else if (m.kind === 'Polygon') { const r = l.getLatLngs(); pts = Array.isArray(r[0]) ? r[0] : r; }
+    else pts = l.getLatLngs();
+    const linked = typeof linkedMediaFor === 'function'
+      ? linkedMediaFor(m.uid).map(x => `#${x.p.num} ${x.p.fileName || x.p.label} (${x.d.toFixed(1)} m)`).join('; ') : '';
+    pts.forEach((p, i) => rows.push([m.name, m.kind, i + 1, p.lat.toFixed(6), p.lng.toFixed(6),
+      l instanceof L.Circle ? Math.round(l.getRadius()) : '', m.style.color, m.inLegend ? 'yes' : 'no', (grp(m.group) || {}).name || '', i === 0 ? linked : '']));
+  });
+  if (rows.length === 1) { alert('Draw something first, then export.'); return; }
+  const csv = '\ufeff' + rows.map(r => r.map(q).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
+  a.download = 'map-coordinates.csv'; a.click(); URL.revokeObjectURL(a.href);
+};
+$('impb').onclick = () => $('imp').click();
+function loadFC(fc, fit) {
+  if (fc.legendTitle) $('lt').value = fc.legendTitle;
+  if (fc.linkSettings && typeof applyLinkSettings === 'function') applyLinkSettings(fc.linkSettings);
+  const gmap = {};
+  (fc.groups || []).forEach(g => { const id = newGid(); gmap[g.id] = id; groups.push({id, name: g.name, inLegend: g.inLegend !== false, hidden: !!g.hidden}); });
+  (fc.features || []).forEach(ft => addFeature(ft, gmap));
+  if (fit && items.getLayers().length) { try { map.fitBounds(items.getBounds()); } catch (e) {} }
+}
+function addFeature(ft, gmap) {
+  const p = ft.properties || {}, g = ft.geometry, st = Object.assign({}, DEF, p.style);
+  if (!g) return false;
+  let l, k;
+  if (g.type === 'Point') {
+    const ll = L.GeoJSON.coordsToLatLng(g.coordinates);
+    if (p.radius) { l = L.circle(ll, {radius: p.radius}); k = 'Circle'; } else { l = L.marker(ll); k = 'Point'; }
+  } else if (g.type === 'LineString') { l = L.polyline(L.GeoJSON.coordsToLatLngs(g.coordinates, 0)); k = 'Line'; }
+  else if (g.type === 'Polygon') { l = L.polygon(L.GeoJSON.coordsToLatLngs(g.coordinates, 1)); k = 'Polygon'; }
+  else return false;
+  register(l, k, st, p.name, p.inLegend !== false, gmap[p.group] || '', p.uid || '');
+  return true;
+}
+/* Brings shapes from another copy of the walk into this one. A shape with the same id
+   (the same shape, edited elsewhere) is replaced by the incoming version; new shapes are
+   added; shapes that exist only here are kept. Groups are matched by name. */
+function mergeFC(fc) {
+  const res = {added: 0, updated: 0, kept: 0};
+  if (fc.legendTitle) $('lt').value = fc.legendTitle;
+  if (fc.linkSettings && typeof applyLinkSettings === 'function') applyLinkSettings(fc.linkSettings);
+  const gmap = {};
+  (fc.groups || []).forEach(g => {
+    let ex = groups.find(x => x.name === g.name);
+    if (!ex) { ex = {id: newGid(), name: g.name, inLegend: g.inLegend !== false, hidden: !!g.hidden}; groups.push(ex); }
+    else { ex.inLegend = g.inLegend !== false; ex.hidden = !!g.hidden; }
+    gmap[g.id] = ex.id;
+  });
+  select(null);
+  const incoming = new Set();
+  (fc.features || []).forEach(ft => {
+    const uid = (ft.properties || {}).uid;
+    if (uid) incoming.add(uid);
+    const old = uid && items.getLayers().find(l => l.meta.uid === uid);
+    if (old) items.removeLayer(old);
+    if (addFeature(ft, gmap)) old ? res.updated++ : res.added++;
+  });
+  res.kept = items.getLayers().filter(l => !incoming.has(l.meta.uid)).length;
+  refresh();
+  return res;
+}
+$('imp').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  e.target.value = '';
+  f.text().then(t => {
+    const parsed = parseWalkFile(t, f.name);
+    if (!parsed.sketch || !parsed.sketch.features.length) { alert(`"${f.name}" has no sketch shapes in it.`); return; }
+    const r = mergeFC(parsed.sketch);
+    try { map.fitBounds(items.getBounds()); } catch (err) {}
+    mapToast(`Sketch updated from ${f.name}: ${r.added} new, ${r.updated} updated, ${r.kept} kept from this copy.`, 5000);
+  }).catch(err => alert('Could not read that file: ' + (err.message || err) + '\nUse a saved site walk (.html) or a GeoJSON file exported from this tool.'));
+};
+
+/* ======================= locked, shareable viewer export =======================
+   viewerMain runs inside the exported page (it is serialised with toString), so it
+   must stay self-contained: no references to anything outside its own body. */
+function viewerMain(D) {
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const esri = p => 'https://server.arcgisonline.com/ArcGIS/rest/services/' + p + '/MapServer/tile/{z}/{y}/{x}';
+  const attr = 'Tiles &copy; Esri';
+  const base = {
+    'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}),
+    'Satellite imagery': L.tileLayer(esri('World_Imagery'), {attribution: attr, maxZoom: 19}),
+    'Map (streets)': L.tileLayer(esri('World_Street_Map'), {attribution: attr, maxZoom: 19}),
+    'Topographic': L.tileLayer(esri('World_Topo_Map'), {attribution: attr, maxZoom: 19}),
+    'Light grey map': L.tileLayer(esri('Canvas/World_Light_Gray_Base'), {attribution: attr, maxZoom: 16})
+  };
+  const keyToName = {'OpenStreetMap': 'OpenStreetMap', 'Esri Imagery': 'Satellite imagery', 'Esri Streets': 'Map (streets)', 'Esri Topographic': 'Topographic', 'Esri Light Gray': 'Light grey map'};
+  const labels = L.tileLayer(esri('Reference/World_Boundaries_and_Places'), {maxZoom: 19});
+
+  const map = L.map('map', {zoomControl: true}).setView(D.view.center, D.view.zoom);
+  (base[keyToName[D.base]] || base['OpenStreetMap']).addTo(map);
+  if (D.labels) labels.addTo(map);
+  if (D.grey) document.getElementById('map').classList.add('grey');
+  L.control.layers(base, {'Place labels': labels}, {collapsed: true}).addTo(map);
+  L.control.scale().addTo(map);
+
+  const groups = (D.fc && D.fc.groups) || [];
+  const grp = id => groups.find(g => g.id === id);
+  const DEF = {color: '#e4572e', weight: 3, opacity: 1, dash: '', fill: '#e4572e', fillOp: 0.25};
+  const layers = [], shapes = [];
+
+  ((D.fc && D.fc.features) || []).forEach(ft => {
+    const p = ft.properties || {}, g = ft.geometry;
+    if (!g) return;
+    const gr = grp(p.group);
+    if (gr && gr.hidden) return;
+    const st = Object.assign({}, DEF, p.style);
+    const opts = {color: st.color, weight: st.weight, opacity: st.opacity, dashArray: st.dash || null, fillColor: st.fill, fillOpacity: st.fillOp};
+    let l;
+    if (g.type === 'Point') {
+      const ll = L.GeoJSON.coordsToLatLng(g.coordinates);
+      if (p.radius) l = L.circle(ll, Object.assign({radius: p.radius}, opts));
+      else {
+        const z = 8 + st.weight * 2;
+        l = L.marker(ll, {draggable: false, keyboard: false, icon: L.divIcon({className: '', iconSize: [z, z], iconAnchor: [z / 2, z / 2],
+          html: '<div class="pin" style="background:' + st.fill + ';border:' + Math.max(1, st.weight / 2) + 'px solid ' + st.color + ';opacity:' + st.opacity + '"></div>'})});
+      }
+    } else if (g.type === 'LineString') l = L.polyline(L.GeoJSON.coordsToLatLngs(g.coordinates, 0), opts);
+    else if (g.type === 'Polygon') l = L.polygon(L.GeoJSON.coordsToLatLngs(g.coordinates, 1), opts);
+    else return;
+    if (p.name) l.bindPopup('<b>' + esc(p.name) + '</b>');
+    l.addTo(map);
+    layers.push(l);
+    shapes.push({kind: p.kind || 'Polygon', st, name: p.name || '', group: p.group || '', inLegend: p.inLegend !== false});
+  });
+
+  function swatch(s) {
+    const st = s.st, w = Math.min(st.weight, 8);
+    const a = 'stroke="' + st.color + '" stroke-opacity="' + st.opacity + '" stroke-width="' + w + '"';
+    const d = st.dash ? ' stroke-dasharray="' + st.dash + '"' : '';
+    if (s.kind === 'Line') return '<svg width="30" height="16"><line x1="2" x2="28" y1="8" y2="8" ' + a + d + '/></svg>';
+    if (s.kind === 'Point') return '<svg width="30" height="16"><circle cx="15" cy="8" r="6" fill="' + st.fill + '" ' + a + '/></svg>';
+    return '<svg width="30" height="16"><rect x="3" y="3" width="24" height="10" fill="' + st.fill + '" fill-opacity="' + st.fillOp + '" ' + a + d + '/></svg>';
+  }
+  const rows = [];
+  groups.forEach(g => {
+    const ms = shapes.filter(x => x.group === g.id);
+    if (g.inLegend !== false && !g.hidden && ms.length) rows.push({s: ms[0], name: g.name});
+  });
+  shapes.filter(x => !grp(x.group) && x.inLegend).forEach(x => rows.push({s: x, name: x.name}));
+  if (D.showLegend && rows.length) {
+    const lg = L.control({position: 'bottomleft'});
+    lg.onAdd = () => {
+      const d = L.DomUtil.create('div', 'legend');
+      d.innerHTML = '<b>' + esc(D.legendTitle) + '</b>' + rows.map(r => '<div>' + swatch(r.s) + '<span>' + esc(r.name) + '</span></div>').join('');
+      L.DomEvent.disableClickPropagation(d);
+      return d;
+    };
+    lg.addTo(map);
+  }
+
+  if (layers.length) {
+    try {
+      let b = null;
+      layers.forEach(l => { const lb = l.getBounds ? l.getBounds() : L.latLngBounds([l.getLatLng()]); b = b ? b.extend(lb) : L.latLngBounds(lb.getSouthWest(), lb.getNorthEast()); });
+      if (b && b.isValid()) map.fitBounds(b.pad(0.1), {maxZoom: 18});
+    } catch (e) { /* keep the saved view */ }
+  }
+}
+
+const VIEWER_CSS = `
+html,body{margin:0;height:100%;font-family:system-ui,'Segoe UI',Arial,sans-serif;}
+body{display:flex;flex-direction:column;}
+#bar{background:#0f2a26;color:#eef2f0;padding:0 16px;height:48px;display:flex;align-items:center;gap:12px;border-bottom:3px solid #2fc6b8;flex-shrink:0;}
+#bar h1{font-size:16px;margin:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#bar .badge{background:#f2668b;color:#1a0510;font:700 11px/1 ui-monospace,Consolas,monospace;letter-spacing:.08em;padding:4px 8px;border-radius:3px;white-space:nowrap;flex-shrink:0;}
+#map{flex:1;min-height:0;}
+#map.grey .leaflet-tile-pane{filter:grayscale(1);}
+.legend{background:rgba(255,255,255,.94);color:#1d2a2e;padding:8px 10px;border-radius:6px;box-shadow:0 1px 6px rgba(0,0,0,.35);max-width:240px;font:13px/1.4 system-ui,sans-serif;}
+.legend b{display:block;margin-bottom:4px;}
+.legend div{display:flex;align-items:center;gap:8px;margin:2px 0;}
+.pin{border-radius:50%;width:100%;height:100%;}
+`;
+
+$('expLock').onclick = () => {
+  if (!items.getLayers().length) { alert('Draw something first, then export.'); return; }
+  const visibleCount = items.getLayers().filter(l => !(grp(l.meta.group) || {}).hidden).length;
+  if (!visibleCount) { alert('All your shapes are in hidden groups, so the locked copy would be empty. Tick the group checkboxes to show them, then export again.'); return; }
+  const title = ($('shareTitle').value || '').trim() || 'Site sketch';
+  const c = map.getCenter();
+  const data = {
+    title, fc: toFC(), legendTitle: $('lt').value, showLegend: $('lon').checked,
+    base: $('bm').value, grey: $('grey').checked, labels: $('lab').checked,
+    view: {center: [c.lat, c.lng], zoom: map.getZoom()}
+  };
+  const json = JSON.stringify(data).replace(/</g, '\\u003c');   // stops any "<" in the data from ending the page script early
+  const close = '<' + '/script>';
+  const html = '<!DOCTYPE html>\n<html lang="en"><head>\n<meta charset="UTF-8">\n' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+    '<title>' + esc(title) + '</title>\n' +
+    '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">\n' +
+    '<style>' + VIEWER_CSS + '</style>\n</head><body>\n' +
+    '<div id="bar"><h1>' + esc(title) + '</h1><span class="badge">VIEW ONLY</span></div>\n' +
+    '<div id="map"></div>\n' +
+    '<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js">' + close + '\n' +
+    '<script type="application/json" id="sketchData">' + json + close + '\n' +
+    '<script>try{if(typeof L==="undefined")throw new Error("The map library could not be loaded. Please check your internet connection and reload this page.");(' + viewerMain.toString() + ')(JSON.parse(document.getElementById("sketchData").textContent));}catch(e){var m=document.getElementById("map");m.style.cssText="display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:#a33;font:15px system-ui,sans-serif;";m.textContent="Could not display this map: "+e.message;}' + close + '\n' +
+    '</body></html>';
+  const name = (title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_') || 'site-sketch') + '_locked.html';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([html], {type: 'text/html'}));
+  a.download = name; a.click(); URL.revokeObjectURL(a.href);
+};
+
+// hooks used by "Save site walk" / "Open saved walk"
+window.sketchAPI = {
+  toFC,
+  loadFC,
+  count: () => items.getLayers().length,
+  clear: () => { select(null); items.clearLayers(); Object.keys(counts).forEach(k => counts[k] = 0); groups = []; activeGroup = ''; refresh(); },
+  // field-capture linking hooks
+  onChange: () => { if (typeof onSketchChanged === 'function') onSketchChanged(); },
+  refresh: () => refresh(),
+  mergeFC,
+  fitAll: () => { try { if (items.getLayers().length) map.fitBounds(items.getBounds().pad(0.1)); } catch (e) {} },
+  linkTargets: includeShapes => items.getLayers()
+    .filter(l => includeShapes || l.meta.kind === 'Point')
+    .map(l => ({uid: l.meta.uid, name: l.meta.name, kind: l.meta.kind, layer: l})),
+  byUid: uid => items.getLayers().find(l => l.meta.uid === uid) || null,
+  selected: () => (multi.size === 1 && sel) ? {uid: sel.meta.uid, name: sel.meta.name} : null,
+  focus: uid => {
+    const l = items.getLayers().find(x => x.meta.uid === uid);
+    if (!l) return false;
+    const g = grp(l.meta.group); if (g && g.hidden) { g.hidden = false; applyVis(); }
+    anchor = l; select(l);
+    map.fitBounds(l.getBounds ? l.getBounds() : L.latLngBounds([l.getLatLng()]), {maxZoom: 19});
+    return true;
+  }
+};
+// restore sketch data embedded in a previously saved site-walk file
+try {
+  const d = JSON.parse(document.getElementById('embeddedSketchData').textContent || '{}');
+  if (d && d.features && d.features.length) {
+    let hasPhotos = false;
+    try { hasPhotos = JSON.parse(document.getElementById('embeddedPhotoData').textContent || '[]').length > 0; } catch (e) {}
+    loadFC(d, !hasPhotos);
+  }
+} catch (e) {}
+
+// sidebar tabs
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === b.dataset.pane));
+});
+refresh();
+})();
+fieldBoot();   // field capture: restore phone-stored session, wire up camera/GPS controls
+</script></body></html>
