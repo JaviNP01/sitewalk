@@ -32,6 +32,14 @@ your walks, photos and sketches never leave the phone unless you export them.
 If iOS keeps asking for location every time, go to **Settings → Privacy & Security →
 Location Services → Safari Websites** and choose **While Using the App**.
 
+## In the field
+
+* **📷** photos and videos, **🎙** audio notes, **📝** text notes (type, or dictate with the keyboard
+  microphone). Each one is pinned at your GPS position and linked to sketch points within 15 m.
+* **↶ Undo** (top bar, side panel and camera screen) reverses the last action: a capture, a removal,
+  a pin move, a comment edit, sketch drawing and editing, or loading a walk file. It goes back up to
+  50 steps since the app was opened.
+
 ## Moving walks between the iPhone and the laptop
 
 * **iPhone → laptop:** ☰ → **Export field pack (ZIP)** (or **Save site walk** for just the

@@ -4,7 +4,7 @@
    - Map / photo libraries from the CDNs: cached on install, then served from the cache.
    - Map tiles you have looked at: kept (up to MAX_TILES) so recently viewed areas show offline.
    Walk data (photos, sketches) is never stored here — it lives in the app's own storage. */
-const VERSION = 'sitewalk-v1';
+const VERSION = 'sitewalk-v2';
 const SHELL_CACHE = VERSION + '-shell';
 const LIB_CACHE = 'sitewalk-libs-v1';
 const TILE_CACHE = 'sitewalk-tiles-v1';

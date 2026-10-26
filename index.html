@@ -362,6 +362,24 @@
   .camErr{position:absolute;left:20px;right:20px;top:40%;text-align:center;font-size:14px;line-height:1.5;color:#ffd3df;display:none;}
   .camErr.show{display:block;}
 
+  /* text notes + undo */
+  .hdrUndo{flex-shrink:0;margin:0 12px 0 auto;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--teal-bright);background:transparent;
+    color:var(--teal-bright);font-family:var(--mono);font-size:13px;cursor:pointer;}
+  .hdrUndo:disabled{opacity:.35;cursor:default;border-color:var(--line);color:var(--muted);}
+  .capGrid .btn:disabled{opacity:.4;cursor:default;}
+  .camBtn:disabled{opacity:.3;}
+  .textStage{position:absolute;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 112px);display:none;flex-direction:column;gap:10px;}
+  .textStage.show{display:flex;}
+  .textStage textarea{width:100%;height:min(38vh,320px);box-sizing:border-box;resize:none;border-radius:10px;border:1px solid #2fc6b8;background:#0b201d;
+    color:#eef2f0;font:16px/1.45 var(--sans);padding:12px;}
+  .textStage textarea:focus{outline:none;border-color:#ffd77a;}
+  .noteRow{display:flex;gap:10px;align-items:center;}
+  .noteHint{flex:1;min-width:0;font-family:var(--mono);font-size:11.5px;color:#9db8b2;line-height:1.4;}
+  .noteSave{flex-shrink:0;background:#2fc6b8;color:#0f2a26;border:0;border-radius:8px;padding:12px 18px;font-family:var(--mono);font-size:13px;font-weight:700;cursor:pointer;}
+  .noteSave:disabled{opacity:.4;}
+  .cam.textMode{background:radial-gradient(circle at 50% 30%,#173a35,#05100e 75%);}
+  .cam.textMode .camRow{display:none;}
+
   /* ---------- small screens (phones) ---------- */
   @media (max-width: 820px){
     .shell{grid-template-columns:1fr;grid-template-rows:56px 1fr;height:100vh;height:100dvh;}
@@ -370,6 +388,8 @@
     .brand{flex:1;}
     .brand h1{font-size:15px;}
     .brand .tag{display:none;}
+    .hdrUndo{margin:0 8px 0 4px;width:40px;height:40px;padding:0;font-size:20px;}
+    .hdrUndoTxt{display:none;}
     .headerRight .hdrNote{display:none;}
     aside{position:fixed;top:56px;left:0;bottom:0;width:min(90vw,390px);z-index:1600;transform:translateX(-103%);
       transition:transform .22s ease;box-shadow:6px 0 24px rgba(0,0,0,.45);}
@@ -393,6 +413,7 @@
       <h1 id="siteTitle">Field Photo Log</h1>
       <span class="tag" id="siteTag">UPLOAD TO BEGIN</span>
     </div>
+    <button id="undoBtn" class="hdrUndo" disabled title="Nothing to undo" aria-label="Undo last action">↶<span class="hdrUndoTxt"> Undo</span></button>
     <div class="headerRight">
       <span class="hdrNote">OpenStreetMap · Leaflet.js · Nominatim — no API key required<br></span>
       <span id="countLabel">0 photos plotted</span>
@@ -424,12 +445,14 @@
         <button class="btn solid wide" id="fieldToggleBtn">Start field mode</button>
         <button class="btn" id="capPhotoBtn">📷 Photo / video</button>
         <button class="btn" id="capAudioBtn">🎙 Audio note</button>
+        <button class="btn" id="capTextBtn">📝 Text note</button>
+        <button class="btn" id="panelUndoBtn" disabled>↶ Undo last action</button>
         <button class="btn ghost" id="nativePhotoBtn">Phone camera app: photo</button>
         <button class="btn ghost" id="nativeVideoBtn">Phone camera app: video</button>
       </div>
       <input type="file" id="nativePhotoInput" accept="image/*" capture="environment" style="display:none;">
       <input type="file" id="nativeVideoInput" accept="video/*" capture="environment" style="display:none;">
-      <div class="hint">Field mode switches on live GPS and the phone compass. Every photo, video or audio note you take is pinned at your GPS position, pointing the way the phone faced, and linked to any sketch point within the distance below. Media is kept on this device until you export a field pack.</div>
+      <div class="hint">Field mode switches on live GPS and the phone compass. Every photo, video, audio or text note you take is pinned at your GPS position, pointing the way the phone faced, and linked to any sketch point within the distance below. Media is kept on this device until you export a field pack.</div>
       <div class="warnBox" id="secureWarn"></div>
       <div class="linkSet">
         <label>Link to sketch points within (m)<input type="number" id="linkRadius" min="1" max="500" step="1" value="15"></label>
@@ -571,11 +594,12 @@
       <div class="row"><span style="color:var(--teal-bright);">●</span> plotted from photo/video EXIF</div>
       <div class="row"><span style="color:var(--pink);">●</span> placed manually</div>
       <div class="row"><span style="color:#f5a300;">●</span> captured live with phone GPS</div>
-      <div class="row">▶ = video · ■ = audio note · <span style="color:#f5c04a;">┄</span> = link to sketch point</div>
+      <div class="row">▶ = video · ■ = audio note · ◆ = text note · <span style="color:#f5c04a;">┄</span> = link to sketch point</div>
       <div class="row">drag = move · ctrl+drag = rotate</div>
     </div>
     <div class="fabs" id="fabs">
       <button class="fab small" id="fabLocate" title="Show my location / follow me" aria-label="Show my location">◎</button>
+      <button class="fab" id="fabText" title="Write a text note" aria-label="Write a text note">📝</button>
       <button class="fab" id="fabAudio" title="Record an audio note" aria-label="Record an audio note">🎙</button>
       <button class="fab big" id="fabCamera" title="Take a photo or video" aria-label="Take a photo or video">📷</button>
     </div>
@@ -612,6 +636,13 @@
     <canvas id="levelCanvas" width="840" height="180"></canvas>
     <div class="aHint" id="audioHint">Tap the button to start recording an audio note.</div>
   </div>
+  <div class="textStage" id="textStage">
+    <textarea id="noteText" placeholder="Type a note… (or tap the microphone on the keyboard to dictate)"></textarea>
+    <div class="noteRow">
+      <span class="noteHint" id="notePin">The note is pinned where you are when you start typing.</span>
+      <button class="noteSave" id="noteSave">Save note</button>
+    </div>
+  </div>
   <div class="flash" id="camFlash"></div>
   <div class="camTop">
     <button class="camBtn" id="camClose" aria-label="Close camera">✕</button>
@@ -620,6 +651,7 @@
       <div id="camHead">Facing: —</div>
       <div class="camLink" id="camLink"></div>
     </div>
+    <button class="camBtn" id="camUndo" aria-label="Undo last action" title="Undo last action" disabled>↶</button>
     <button class="camBtn" id="camFlip" aria-label="Switch camera">⟲</button>
   </div>
   <div class="recTime" id="recTime">● 0:00</div>
@@ -630,6 +662,7 @@
       <button data-mode="photo" class="on">Photo</button>
       <button data-mode="video">Video</button>
       <button data-mode="audio">Audio</button>
+      <button data-mode="text">Text</button>
     </div>
     <div class="camRow">
       <div class="camLast" id="camLast" title="Last capture"></div>
@@ -1038,6 +1071,7 @@ function popupHtml(p){
   const color = markerColor(p), shape = markerShape(p), fontSize = markerFontSize(p);
   const isVid = p.mediaType === 'video';
   const isAud = p.mediaType === 'audio';
+  const isTxt = p.mediaType === 'text';
   const durLabel = (isVid || isAud) && p.duration ? ` (${fmtDuration(p.duration)})` : '';
   const accLabel = p.gpsAcc != null ? ` · ±${Math.round(p.gpsAcc)} m` : '';
   return `
@@ -1059,9 +1093,9 @@ function popupHtml(p){
         <label class="styleField">Shape<select id="shape-${p.id}">${shapeOptionsHtml(shape)}</select></label>
         <label class="styleField">Size <span class="fieldVal" id="fontVal-${p.id}">${fontSize}px</span><input type="range" id="font-${p.id}" min="8" max="16" step="1" value="${fontSize}"></label>
       </div>
-      <div class="commentLabel">Comment</div>
-      <textarea class="commentBox" id="comment-${p.id}" placeholder="Add a comment...">${escapeHtml(p.comment || '')}</textarea>
-      <button onclick="openLightbox('${p.id}')">${isVid ? 'Play video' : isAud ? 'Play audio note' : 'Open full photo'}</button>
+      <div class="commentLabel">${isTxt ? 'Note text' : 'Comment'}</div>
+      <textarea class="commentBox" id="comment-${p.id}" placeholder="${isTxt ? 'Type the note…' : 'Add a comment...'}"${isTxt ? ' rows="5"' : ''}>${escapeHtml(p.comment || '')}</textarea>
+      <button onclick="openLightbox('${p.id}')">${isVid ? 'Play video' : isAud ? 'Play audio note' : isTxt ? 'Open note' : 'Open full photo'}</button>
       ${fieldHeadingAvailable() ? `<button onclick="setDirFromCompass('${p.id}')">Set facing from phone compass</button>` : ''}
       <button class="removeBtn" onclick="removePhoto('${p.id}')">Remove from log</button>
     </div>`;
@@ -1113,7 +1147,9 @@ function saveComment(id, value){
   const p = allPhotos.find(x=>x.id===id);
   if(!p) return;
   if(p.comment === value) return; // nothing changed — skip the DOM/popup refresh below
+  recordUndo(`${p.mediaType === 'text' ? 'Edit text note' : 'Edit comment'} #${p.num}`, 'comment:' + id);
   p.comment = value;
+  if(p.mediaType === 'text') refreshTextNote(p);
   savePersisted();
   const snippetEl = document.getElementById('comment-snippet-'+id);
   if(snippetEl) snippetEl.innerHTML = commentSnippetHtml(p);
@@ -1135,6 +1171,7 @@ function saveComment(id, value){
 function updateMarkerStyle(id, changes){
   const p = allPhotos.find(x=>x.id===id);
   if(!p) return;
+  recordUndo(`Restyle pin #${p.num}`, 'style:' + id);
   Object.assign(p, changes);
   savePersisted();
   if(markers[id]){
@@ -1167,7 +1204,7 @@ function csvEscape(val){
 }
 
 function buildPhotoListCsv(){
-  const typeName = t => t === 'video' ? 'Video' : t === 'audio' ? 'Audio' : 'Photo';
+  const typeName = t => t === 'video' ? 'Video' : t === 'audio' ? 'Audio' : t === 'text' ? 'Text note' : 'Photo';
   const rows = [['Photo #','Type','File','Label','Latitude','Longitude','Direction','Comment',
                  'Captured at','GPS accuracy (m)','Linked sketch points','Distance to linked points (m)']];
   allPhotos.forEach(p=>{
@@ -1199,6 +1236,7 @@ document.getElementById('exportListBtn').onclick = exportPhotoList;
 function addMarker(p){
   const marker = L.marker([p.lat, p.lng], { icon: arrowIcon(p.dir, markerColor(p), p.num, markerShape(p), markerFontSize(p)), draggable: true }).addTo(map);
   marker.bindPopup(popupHtml(p));
+  if(p._liveUrl) liveUrlCache.set(p.id, p._liveUrl);
   marker.on('popupopen', ()=> bindPopupControls(p.id));
   // While open, a popup is only patched in place (see updatePhotoUI); rebuild it on close
   // so the next opening shows current links/heading/road.
@@ -1241,7 +1279,7 @@ function rebuildList(){
       </div>
       <div class="numBadge" style="background:${markerColor(p)};color:${contrastColor(markerColor(p))};">${p.num}</div>
       <div class="photoMeta">
-        <div class="name">${isAud ? '🎙 ' : ''}${escapeHtml(p.label)}${durLabel}</div>
+        <div class="name">${isAud ? '🎙 ' : p.mediaType === 'text' ? '📝 ' : ''}${escapeHtml(p.label)}${durLabel}</div>
         <div class="dir" id="desc-${p.id}">${descText(p)}</div>
         <div class="coords" id="row-coords-${p.id}">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.gpsAcc != null ? ` ±${Math.round(p.gpsAcc)} m` : ''}</div>
         <div class="linkInfo" id="rlinks-${p.id}">${linksHtml(p, false)}</div>
@@ -1254,7 +1292,8 @@ function rebuildList(){
     row.querySelector('.rowDelete').onclick = (e)=>{ e.stopPropagation(); removePhoto(p.id); };
     listEl.appendChild(row);
   });
-  document.getElementById('countLabel').textContent = `${allPhotos.length} photo${allPhotos.length===1?'':'s'} plotted`;
+  const onlyPhotos = allPhotos.every(p => !p.mediaType || p.mediaType === 'photo');
+  document.getElementById('countLabel').textContent = `${allPhotos.length} ${onlyPhotos ? 'photo' : 'item'}${allPhotos.length===1?'':'s'} plotted`;
 }
 
 function highlightRow(id){
@@ -1300,12 +1339,20 @@ function openLightbox(id){
     lbAudio.onerror = onLoadError;
     lbAudio.src = src;
     lbAudio.load();
+  } else if(p.mediaType === 'text'){
+    lbVideo.removeAttribute('src'); lbAudio.removeAttribute('src');
+    lbImg.removeAttribute('src');
   } else {
     lbVideo.removeAttribute('src'); lbAudio.removeAttribute('src');
     lbImg.style.display = '';
     lbImg.onerror = onLoadError;
     lbImg.src = src;
   }
+  const isTxt = p.mediaType === 'text';
+  const lbBox = document.getElementById('lbCommentBox');
+  if(lbBox.previousElementSibling) lbBox.previousElementSibling.textContent = isTxt ? 'Note text' : 'Comment';
+  lbBox.placeholder = isTxt ? 'Type the note…' : 'Add a comment about this photo...';
+  lbBox.style.minHeight = isTxt ? '180px' : '';
   document.getElementById('lbName').textContent = `#${p.num} — ${p.label}`;
   document.getElementById('lbDesc').textContent = descText(p);
   document.getElementById('lbCoords').textContent = `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}${p.gpsAcc != null ? ` (±${Math.round(p.gpsAcc)} m)` : ''}`;
@@ -1357,11 +1404,12 @@ document.getElementById('lightbox').addEventListener('click', e=>{
 function removePhoto(id){
   const p = allPhotos.find(x=>x.id===id);
   if(!p) return;
-  if(!confirm(`Remove "${p.label}" from the photo log?`)) return;
+  if(!confirm(`Remove "${p.label}" from the log? (You can bring it back with Undo.)`)) return;
+  recordUndo(`Remove #${p.num} (${p.label})`);
   if(markers[id]){ map.removeLayer(markers[id]); delete markers[id]; }
-  if(p._liveUrl) URL.revokeObjectURL(p._liveUrl);
   allPhotos = allPhotos.filter(x=>x.id!==id);
-  if(p.stored && p.fileName && !allPhotos.some(x => x.fileName === p.fileName)) FieldStore.delMedia(p.fileName).catch(()=>{});
+  // the file is kept until the next start-up, so Undo can restore it
+  if(p.stored && p.fileName && !allPhotos.some(x => x.fileName === p.fileName)) trashAdd(p.fileName);
   renumberPhotos();
   refreshAllMarkerIcons();
   rebuildList();
@@ -1376,6 +1424,7 @@ function removePhoto(id){
 function onMarkerDragEnd(id, latlng){
   const p = allPhotos.find(x=>x.id===id);
   if(!p) return;
+  recordUndo(`Move pin #${p.num}`);
   p.lat = latlng.lat;
   p.lng = latlng.lng;
   p.road = undefined; // location changed — re-derive the road name
@@ -1450,6 +1499,10 @@ function finishRotate(){
   if(!id) return;
   const p = allPhotos.find(x=>x.id===id);
   if(p && p._pendingDir != null){
+    const pending = p._pendingDir;
+    delete p._pendingDir;
+    recordUndo(`Rotate pin #${p.num}`);
+    p._pendingDir = pending;
     p.dir = Math.round(p._pendingDir * 10) / 10;
     delete p._pendingDir;
     updatePhotoUI(id);
@@ -1552,7 +1605,6 @@ function saveSiteWalk(){
 function loadPhotosData(data){
   Object.values(markers).forEach(m => map.removeLayer(m));
   markers = {};
-  allPhotos.forEach(p => { if(p._liveUrl) URL.revokeObjectURL(p._liveUrl); });
   allPhotos = Array.isArray(data) ? data : [];
   renumberPhotos();
   allPhotos.forEach(p => addMarker(p));
@@ -1599,6 +1651,7 @@ function mergePhotoRecords(incoming){
     const cur = allPhotos.find(p => p.id === fp.id) || (fp.fileName && allPhotos.find(p => p.fileName === fp.fileName));
     if(cur){
       editable.forEach(k => { if(fp[k] !== undefined) cur[k] = fp[k]; });
+      if(cur.mediaType === 'text' && fp.thumb) cur.thumb = fp.thumb;
       updated++;
     } else {
       const copy = Object.fromEntries(Object.entries(fp).filter(([k]) => k.charAt(0) !== '_'));
@@ -1622,13 +1675,18 @@ function applyIncomingWalk(parsed, mode, name){
   const sk = parsed.sketch && Array.isArray(parsed.sketch.features) ? parsed.sketch : null;
   const sAPI = window.sketchAPI;
   let msg = '';
+  recordUndo(`Load ${name}`);
+  undoMute++;
+  try{
   if(mode === 'replace'){
+    const dropped = allPhotos.filter(p => p.stored && p.fileName && !(parsed.photos || []).some(x => x.fileName === p.fileName));
+    dropped.forEach(p => trashAdd(p.fileName));
     loadPhotosData(parsed.photos || []);
     if(sAPI){ sAPI.clear(); if(sk) sAPI.loadFC(sk, !(parsed.photos || []).length); }
     msg = `Loaded ${name}.`;
   } else if(mode === 'sketch'){
     if(sAPI){ sAPI.clear(); if(sk) sAPI.loadFC(sk, false); sAPI.fitAll(); }
-    msg = `Sketch replaced with the ${sk ? sk.features.length : 0} shape(s) from ${name}. Your ${allPhotos.length} photo/video/audio item(s) were kept.`;
+    msg = `Sketch replaced with the ${sk ? sk.features.length : 0} shape(s) from ${name}. Your ${allPhotos.length} captured item(s) were kept.`;
   } else if(mode === 'merge'){
     const r = sk && sAPI ? sAPI.mergeFC(sk) : { added: 0, updated: 0, kept: 0 };
     const pr = mergePhotoRecords(parsed.photos || []);
@@ -1638,9 +1696,10 @@ function applyIncomingWalk(parsed, mode, name){
   }
   lastSketchSig = null;
   relinkAll();
+  } finally { undoMute--; rebaseSketchUndo(); }
   savePersisted();
   if(deviceReady){ clearTimeout(deviceSaveTimer); saveDeviceState(); }   // store the update right away
-  mapToast(msg, 6000);
+  mapToast(msg + ' (Undo is available.)', 6000);
 }
 function handleIncomingWalk(text, name){
   let parsed;
@@ -1931,6 +1990,7 @@ function handleFiles(fileList){
 /* Adds a finished photo/video/audio record to the log, map and list, links it to
    nearby sketch points, and saves. Shared by uploads, manual placement and field capture. */
 function addPhotoRecord(p, {pan = true} = {}){
+  recordUndo(`Add ${KIND_NAME[p.mediaType] || 'item'} #${allPhotos.length + 1}`);
   allPhotos.push(p);
   renumberPhotos();
   computeLinks(p);
@@ -2126,7 +2186,7 @@ confirmBtn.onclick = ()=>{
     label: pendingFile.file.name.replace(/\.[^.]+$/,''),
     source: 'manual',
     comment: '',
-    color: '#f2668b', shape: pendingFile.mediaType === 'audio' ? 'square' : 'circle', fontSize: 11,
+    color: '#f2668b', shape: defaultShape(pendingFile.mediaType), fontSize: 11,
     mediaType: pendingFile.mediaType || 'photo',
     duration: pendingFile.duration || null
   }, ex);
@@ -2188,6 +2248,7 @@ const FieldStore = (() => {
     hasMedia: k => run('media', 'readonly', s => s.count(k)).then(n => n > 0),
     putState: (k, v) => run('state', 'readwrite', s => s.put(v, k)),
     getState: k => run('state', 'readonly', s => s.get(k)),
+    allStates: () => run('state', 'readonly', s => s.getAll()),
     clearAll: () => run('media', 'readwrite', s => s.clear()).then(() => run('state', 'readwrite', s => s.clear()))
   };
 })();
@@ -2230,9 +2291,224 @@ async function saveDeviceState(){
 async function rehydrateStoredMedia(){
   for(const p of allPhotos){
     if(p.stored && p.fileName && !p._liveUrl){
-      try{ const b = await FieldStore.getMedia(p.fileName); if(b) p._liveUrl = URL.createObjectURL(b); }catch(e){}
+      try{ const b = await FieldStore.getMedia(p.fileName); if(b){ p._liveUrl = URL.createObjectURL(b); liveUrlCache.set(p.id, p._liveUrl); } }catch(e){}
     }
   }
+}
+
+/* ======================= Undo last action =======================
+   Every change to the walk (add / remove / move / rotate / restyle / comment, text notes,
+   sketch drawing and editing, loading a walk file) first saves a snapshot of the walk.
+   "Undo" puts the last snapshot back. Snapshots share the thumbnails in memory, so they
+   are cheap. Media files of removed items are kept until the next start-up so Undo can
+   bring them back, then deleted if nothing uses them any more. */
+const UNDO_MAX = 50;
+const undoStack = [];
+let undoReady = false;          // switched on once the stored walk has been restored
+let undoMute = 0;               // >0 while undo itself (or a compound action) is changing things
+let sketchUndoFC = null, sketchUndoJSON = null;   // last committed sketch, to detect sketch edits
+const liveUrlCache = new Map(); // item id -> blob URL, so restored items can play their media at once
+const KIND_NAME = { photo: 'photo', video: 'video', audio: 'audio note', text: 'text note' };
+function defaultShape(mediaType){ return mediaType === 'audio' ? 'square' : mediaType === 'text' ? 'diamond' : 'circle'; }
+
+function sketchForUndo(){
+  if(!window.sketchAPI) return null;
+  const fc = window.sketchAPI.toFC();
+  delete fc.linkSettings;           // link distance settings are not part of undo
+  return fc;
+}
+function rebaseSketchUndo(){
+  sketchUndoFC = sketchForUndo();
+  sketchUndoJSON = sketchUndoFC ? JSON.stringify(sketchUndoFC) : null;
+}
+function pushUndo(entry){
+  undoStack.push(entry);
+  if(undoStack.length > UNDO_MAX) undoStack.shift();
+  updateUndoUI();
+}
+/* Call BEFORE changing anything. Edits with the same key within 1.5 s count as one step. */
+function recordUndo(label, key){
+  if(!undoReady || undoMute) return;
+  const now = Date.now(), top = undoStack[undoStack.length - 1];
+  if(key && top && top.key === key && now - top.t < 1500){ top.t = now; return; }
+  pushUndo({ label, key: key || null, t: now, photos: cleanPhotosForSave(), sketch: sketchUndoFC });
+}
+function describeSketchChange(a, b){
+  const ua = new Map((a ? a.features : []).map(f => [f.properties.uid, f.properties.name]));
+  const ub = new Map((b ? b.features : []).map(f => [f.properties.uid, f.properties.name]));
+  const added = [...ub.keys()].filter(k => !ua.has(k)), removed = [...ua.keys()].filter(k => !ub.has(k));
+  if(added.length === 1 && !removed.length) return `Draw "${ub.get(added[0])}"`;
+  if(removed.length === 1 && !added.length) return `Delete "${ua.get(removed[0])}"`;
+  if(added.length || removed.length) return `Sketch: ${added.length} added, ${removed.length} deleted`;
+  return 'Edit sketch';
+}
+/* Called after every sketch refresh: records an undo step whenever the shapes really changed. */
+function checkSketchUndo(){
+  if(!window.sketchAPI) return;
+  if(!undoReady || undoMute){ return; }
+  const fc = sketchForUndo(), js = JSON.stringify(fc);
+  if(sketchUndoJSON === null){ sketchUndoFC = fc; sketchUndoJSON = js; return; }
+  if(js === sketchUndoJSON) return;
+  const now = Date.now(), top = undoStack[undoStack.length - 1];
+  if(top && top.key === 'sketch' && now - top.t < 1200){ top.t = now; top.label = describeSketchChange(top.sketch, fc); updateUndoUI(); }
+  else pushUndo({ label: describeSketchChange(sketchUndoFC, fc), key: 'sketch', t: now, photos: cleanPhotosForSave(), sketch: sketchUndoFC });
+  sketchUndoFC = fc; sketchUndoJSON = js;
+}
+function updateUndoUI(){
+  const top = undoStack[undoStack.length - 1];
+  ['undoBtn', 'panelUndoBtn', 'camUndo'].forEach(id => {
+    const b = byId(id);
+    if(!b) return;
+    b.disabled = !top;
+    b.title = top ? 'Undo: ' + top.label : 'Nothing to undo';
+  });
+}
+function undoLast(){
+  const e = undoStack.pop();
+  if(!e){ mapToast('Nothing to undo.'); updateUndoUI(); return; }
+  undoMute++;
+  try{
+    map.closePopup();
+    if(lightboxOpenId) closeLightbox();
+    const before = new Set(allPhotos.filter(p => p.stored && p.fileName).map(p => p.fileName));
+    allPhotos = e.photos.map(p => {
+      const c = Object.assign({}, p);
+      const u = liveUrlCache.get(c.id);
+      if(u) c._liveUrl = u;
+      return c;
+    });
+    redrawAllPhotos();
+    if(window.sketchAPI && e.sketch && JSON.stringify(e.sketch) !== sketchUndoJSON){
+      window.sketchAPI.clear();
+      window.sketchAPI.loadFC(e.sketch, false);
+    }
+    const after = new Set(allPhotos.filter(p => p.stored && p.fileName).map(p => p.fileName));
+    before.forEach(f => { if(!after.has(f)) trashAdd(f); });       // e.g. undoing a capture
+    after.forEach(f => trashRemove(f));                              // e.g. undoing a removal
+    lastSketchSig = null;
+    relinkAll();
+  } finally {
+    undoMute--;
+    rebaseSketchUndo();
+    updateUndoUI();
+  }
+  savePersisted();
+  if(deviceReady){ clearTimeout(deviceSaveTimer); saveDeviceState(); }
+  mapToast('Undone: ' + e.label, 3500);
+  if(camOpen()) setCamToast('Undone: ' + e.label, null);
+}
+document.addEventListener('keydown', ev => {
+  if(!(ev.ctrlKey || ev.metaKey) || ev.shiftKey || ev.altKey || ev.key.toLowerCase() !== 'z') return;
+  const t = ev.target;
+  if(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return; // let text boxes undo typing
+  ev.preventDefault();
+  undoLast();
+});
+
+/* media of removed items: deleted at the next start-up if no walk on this device still uses it */
+let trash = new Set();
+function saveTrash(){ FieldStore.putState('__trash', [...trash]).catch(() => {}); }
+function trashAdd(f){ if(f && !trash.has(f)){ trash.add(f); saveTrash(); } }
+function trashRemove(f){ if(trash.delete(f)) saveTrash(); }
+async function purgeTrash(){
+  try{
+    const t = await FieldStore.getState('__trash');
+    trash = new Set(Array.isArray(t) ? t : []);
+    if(!trash.size) return;
+    const used = new Set(allPhotos.map(p => p.fileName));
+    (await FieldStore.allStates()).forEach(st => (st && Array.isArray(st.photos) ? st.photos : []).forEach(p => used.add(p.fileName)));
+    for(const f of [...trash]){
+      if(!used.has(f)){ try{ await FieldStore.delMedia(f); }catch(e){} }
+      trash.delete(f);
+    }
+    saveTrash();
+  }catch(e){ console.warn('media clean-up skipped', e); }
+}
+
+/* ======================= text notes =======================
+   A text note is a log item like a photo: pinned at the GPS position (taken when you start
+   typing), pointing the way the phone faced, linked to nearby sketch points. Its text is the
+   item's comment, so it can be edited from the pin, the list or the viewer like any comment. */
+function textLabel(text){
+  const first = String(text || '').trim().split(/\n/)[0].trim();
+  return first ? (first.length > 42 ? first.slice(0, 40) + '…' : first) : 'Text note';
+}
+function textThumb(text){
+  const c = document.createElement('canvas');
+  c.width = 320; c.height = 200;
+  const g = c.getContext('2d');
+  g.fillStyle = '#123330'; g.fillRect(0, 0, 320, 200);
+  g.fillStyle = '#f5a300'; g.fillRect(0, 0, 6, 200);
+  g.fillStyle = '#eef2f0';
+  g.font = '17px Arial, sans-serif';
+  const words = String(text || '').replace(/\s+/g, ' ').trim().split(' ');
+  const lines = [];
+  let line = '';
+  for(const w of words){
+    const test = line ? line + ' ' + w : w;
+    if(g.measureText(test).width > 290 && line){ lines.push(line); line = w; } else line = test;
+    if(lines.length === 6) break;
+  }
+  if(lines.length < 6 && line) lines.push(line);
+  if(lines.length === 6 && words.join(' ').length > lines.join(' ').length){
+    let last = lines[5];
+    while(last && g.measureText(last + '…').width > 290) last = last.slice(0, -1);
+    lines[5] = last + '…';
+  }
+  lines.forEach((l, i) => g.fillText(l, 16, 30 + i * 23));
+  g.fillStyle = '#f5a300';
+  g.font = 'bold 15px Arial, sans-serif';
+  g.fillText('TEXT NOTE', 16, 186);
+  return c.toDataURL('image/jpeg', 0.8);
+}
+// after the note text is edited: new thumbnail and title everywhere it shows
+function refreshTextNote(p){
+  p.thumb = textThumb(p.comment);
+  p.label = textLabel(p.comment);
+  const row = byId('row-' + p.id);
+  if(row){
+    const img = row.querySelector('.thumbWrap img'); if(img) img.src = p.thumb;
+    const nm = row.querySelector('.name'); if(nm) nm.textContent = '📝 ' + p.label;
+  }
+  const lm = document.querySelector(`#linkedMedia .lm[data-id="${p.id}"] img`); if(lm) lm.src = p.thumb;
+  if(lightboxOpenId === p.id) byId('lbName').textContent = `#${p.num} — ${p.label}`;
+}
+async function saveTextNote(text, fix, head){
+  text = String(text || '').trim();
+  if(!text) return null;
+  const fileName = stampName('TXT', 'txt');
+  const thumb = textThumb(text);
+  if(!fix){
+    setCamToast('Waiting for GPS…', null);
+    fix = await waitForFix(8000);
+  }
+  const capturedAt = new Date().toISOString();
+  if(fix){
+    return addPhotoRecord({
+      id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      thumb, fileName, lat: fix.lat, lng: fix.lng,
+      gpsAcc: fix.acc != null ? Math.round(fix.acc * 10) / 10 : null,
+      dir: head ? head.dir : 0, dirSrc: head ? head.src : 'none',
+      label: textLabel(text), source: 'gps', comment: text,
+      color: '#f5a300', shape: 'diamond', fontSize: 11,
+      mediaType: 'text', duration: null, stored: false, capturedAt
+    }, { pan: !camOpen() });
+  }
+  queueManualPlacement({
+    file: new File([text], fileName, { type: 'text/plain' }), thumb, fileName, liveUrl: null, mediaType: 'text', duration: null,
+    extra: { stored: false, capturedAt, comment: text, label: textLabel(text), dir: head ? head.dir : null,
+             reason: 'Text note: no GPS fix when it was written — place it on the map.' }
+  });
+  return null;
+}
+function noteTextFile(p){
+  const links = (p.links || []).map(l => `${linkName(l)} (${l.d.toFixed(1)} m)`).join('; ');
+  return `Text note #${p.num}\r\n` +
+    (p.capturedAt ? `Written: ${new Date(p.capturedAt).toLocaleString()}\r\n` : '') +
+    `Position: ${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}${p.gpsAcc != null ? ` (±${Math.round(p.gpsAcc)} m)` : ''}\r\n` +
+    (p.dirSrc !== 'none' ? `Facing: ${fmtDir(p.dir)}\r\n` : '') +
+    (links ? `Linked sketch points: ${links}\r\n` : '') +
+    `\r\n${(p.comment || '').replace(/\r?\n/g, '\r\n')}\r\n`;
 }
 
 /* ---------- small helpers ---------- */
@@ -2409,6 +2685,7 @@ function sketchSignature(){
   }).join(';');
 }
 function onSketchChanged(){            // called by the sketch tool after every change
+  checkSketchUndo();
   scheduleDeviceSave();
   renderLinkedMediaPanel();
   const sig = sketchSignature();
@@ -2608,6 +2885,7 @@ function updateFieldUI(){
   updateMeHeading();
   updateNearby();
   if(byId('cam').classList.contains('show')) updateCamStatus();
+  if(camOpen() && cam.mode === 'text' && !noteDraft.fix && byId('noteText').value.trim()) onNoteInput();   // GPS arrived while typing
 }
 function nearbyText(){
   const f = fieldLastFix(30000);
@@ -2837,7 +3115,7 @@ async function finishCapture({ blob, ext, mediaType, duration, fix, head, thumb,
 }
 function captureSummary(p){
   if(!p) return 'Saved without GPS — place it on the map after closing the camera.';
-  const kind = p.mediaType === 'audio' ? 'Audio note' : p.mediaType === 'video' ? 'Video' : 'Photo';
+  const kind = p.mediaType === 'audio' ? 'Audio note' : p.mediaType === 'video' ? 'Video' : p.mediaType === 'text' ? 'Text note' : 'Photo';
   const links = (p.links || []).map(l => `${linkName(l)} (${Math.round(l.d)} m)`).join(', ');
   return `${kind} #${p.num} saved` + (p.gpsAcc != null ? ` · ±${Math.round(p.gpsAcc)} m` : '') + (links ? ` · 🔗 ${links}` : ' · no sketch point nearby');
 }
@@ -2875,6 +3153,7 @@ async function openCamera(mode){
 }
 function closeCamera(fromPop){
   if(cam.recorder) stopRecording();
+  if(byId('noteText').value.trim()) saveNoteFromStage();   // never lose a half-written note
   stopStream();
   byId('cam').classList.remove('show');
   showCamErr('');
@@ -2890,13 +3169,68 @@ async function setCamMode(mode){
   byId('camModes').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
   const sh = byId('camShutter');
   sh.className = 'shutter' + (mode === 'video' ? ' vid' : mode === 'audio' ? ' aud' : '');
+  const isText = mode === 'text';
   byId('audioStage').classList.toggle('show', mode === 'audio');
-  byId('camVideo').style.visibility = mode === 'audio' ? 'hidden' : 'visible';
-  byId('camFlip').style.visibility = mode === 'audio' ? 'hidden' : 'visible';
+  byId('textStage').classList.toggle('show', isText);
+  byId('cam').classList.toggle('textMode', isText);
+  byId('camVideo').style.visibility = mode === 'audio' || isText ? 'hidden' : 'visible';
+  byId('camFlip').style.visibility = mode === 'audio' || isText ? 'hidden' : 'visible';
   byId('audioHint').textContent = 'Tap the button to start recording an audio note. Tap again to stop.';
   updateCamStatus();
+  if(isText){
+    stopStream();                       // no camera or microphone needed for typing
+    showCamErr('');
+    byId('noteText').focus();           // still inside the tap, so the phone keyboard opens
+    byId('noteSave').disabled = !byId('noteText').value.trim();
+    updateNoteHint();
+    return;
+  }
   await startStream();
 }
+
+/* ---- text-note stage inside the capture screen ---- */
+const noteDraft = { fix: null, head: null };
+function updateNoteHint(){
+  const h = byId('notePin');
+  if(noteDraft.fix){
+    const near = nearbyTargets(noteDraft.fix);
+    h.textContent = `📍 Pinned here (±${Math.round(noteDraft.fix.acc)} m)` +
+      (near.length ? ' · 🔗 ' + near.map(n => `${linkName(n)} (${Math.round(n.d)} m)`).join(', ') : ` · no sketch point within ${LINK.radius} m`);
+  } else {
+    h.textContent = byId('noteText').value.trim()
+      ? 'Waiting for GPS… the note will be pinned at the first fix.'
+      : 'The note is pinned where you are when you start typing. Use the keyboard microphone to dictate.';
+  }
+}
+function onNoteInput(){
+  const has = !!byId('noteText').value.trim();
+  if(has && !noteDraft.fix){ noteDraft.fix = fieldLastFix(15000); noteDraft.head = currentHeading(); }
+  if(!has){ noteDraft.fix = null; noteDraft.head = null; }
+  byId('noteSave').disabled = !has;
+  updateNoteHint();
+}
+async function saveNoteFromStage(){
+  const ta = byId('noteText');
+  const text = ta.value.trim();
+  if(!text) return;
+  const fix = noteDraft.fix || fieldLastFix(15000), head = noteDraft.head || currentHeading();
+  ta.value = '';
+  noteDraft.fix = null; noteDraft.head = null;
+  byId('noteSave').disabled = true;
+  try{
+    const p = await saveTextNote(text, fix, head);
+    if(camOpen()) afterCapture(p); else mapToast(captureSummary(p), 5000);
+  }catch(e){
+    console.error(e);
+    ta.value = text;                    // put the text back so nothing is lost
+    setCamToast('Saving the note failed: ' + (e.message || e), null);
+  }
+  updateNoteHint();
+  if(camOpen() && cam.mode === 'text') ta.focus();
+}
+byId('noteText').addEventListener('input', onNoteInput);
+byId('noteText').addEventListener('keydown', e => { if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); saveNoteFromStage(); } });
+byId('noteSave').onclick = saveNoteFromStage;
 function stopStream(){
   cam.tok++;
   if(cam.raf){ cancelAnimationFrame(cam.raf); cam.raf = null; }
@@ -2990,6 +3324,7 @@ function setCamToast(msg, id){
 }
 function afterCapture(p){
   setCamToast(captureSummary(p), p ? p.id : null);
+  byId('camToastNote').style.display = p && p.mediaType !== 'text' ? '' : 'none';   // a text note is its own note
   if(p){
     cam.count++;
     byId('camCount').textContent = `${cam.count} this session`;
@@ -3149,6 +3484,7 @@ function previewDir(id, deg){
 function setPhotoDir(id, deg, src){
   const p = allPhotos.find(x => x.id === id);
   if(!p) return;
+  recordUndo(`Change direction of #${p.num}`, 'dir:' + id);
   p.dir = Math.round(((deg % 360) + 360) % 360 * 10) / 10;
   p.dirSrc = src || 'manual';
   if(markers[id]) markers[id].setIcon(arrowIcon(p.dir, markerColor(p), p.num, markerShape(p), markerFontSize(p)));
@@ -3181,6 +3517,10 @@ async function exportFieldPack(){
     const missing = [], added = new Set();
     for(const p of allPhotos){
       if(!p.fileName || added.has(p.fileName)) continue;
+      if(p.mediaType === 'text'){            // text notes go in as readable .txt files
+        zip.file(p.fileName, '\ufeff' + noteTextFile(p)); added.add(p.fileName);
+        continue;
+      }
       let blob = null;
       try{ blob = await FieldStore.getMedia(p.fileName); }catch(e){}
       if(!blob && p._liveUrl){ try{ blob = await (await fetch(p._liveUrl)).blob(); }catch(e){} }
@@ -3205,12 +3545,16 @@ async function exportFieldPack(){
   }
 }
 async function clearDevice(){
-  if(!confirm('Start a new, empty walk?\n\nThis deletes every photo, video, audio note and sketch shape stored in this browser on this device. Export a field pack first if you still need them.')) return;
+  if(!confirm('Start a new, empty walk?\n\nThis deletes every photo, video, audio note, text note and sketch shape stored in this browser on this device. This cannot be undone, so export a field pack first if you still need them.')) return;
   deviceReady = false;
+  undoMute++;
   try{ await FieldStore.clearAll(); }catch(e){}
   try{ if(window.storage) await window.storage.set(STORAGE_KEY, '[]', false); }catch(e){}
   loadPhotosData([]);
   if(window.sketchAPI) window.sketchAPI.clear();
+  undoMute--;
+  undoStack.length = 0; trash.clear(); liveUrlCache.clear();
+  rebaseSketchUndo(); updateUndoUI();
   deviceReady = true;
   await saveDeviceState();
   mapToast('New walk started.');
@@ -3224,9 +3568,14 @@ async function fieldBoot(){
   byId('pickOnMapBtn').addEventListener('click', closePanelOnMobile);
 
   byId('fieldToggleBtn').onclick = () => { if(field.on) stopField(); else startField(); };
-  byId('capPhotoBtn').onclick = () => openCamera(cam.mode === 'audio' ? 'photo' : cam.mode);
+  byId('capPhotoBtn').onclick = () => openCamera(cam.mode === 'video' ? 'video' : 'photo');
   byId('capAudioBtn').onclick = () => openCamera('audio');
-  byId('fabCamera').onclick = () => openCamera(cam.mode === 'audio' ? 'photo' : cam.mode);
+  byId('capTextBtn').onclick = () => openCamera('text');
+  byId('fabText').onclick = () => openCamera('text');
+  byId('undoBtn').onclick = undoLast;
+  byId('panelUndoBtn').onclick = undoLast;
+  byId('camUndo').onclick = undoLast;
+  byId('fabCamera').onclick = () => openCamera(cam.mode === 'video' ? 'video' : 'photo');
   byId('fabAudio').onclick = () => openCamera('audio');
   byId('nativePhotoBtn').onclick = () => nativeCapture('photo');
   byId('nativeVideoBtn').onclick = () => nativeCapture('video');
@@ -3278,6 +3627,11 @@ async function fieldBoot(){
   lastSketchSig = null;
   onSketchChanged();
   queueFieldUI();
+  // Undo starts from the walk as restored; media left over from removed items is cleaned up
+  rebaseSketchUndo();
+  undoReady = true;
+  updateUndoUI();
+  purgeTrash();
   window.siteWalkIncomingFile();   // app opened by tapping a walk file
 }
 
